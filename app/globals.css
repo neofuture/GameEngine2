@@ -1,0 +1,617 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0a0c;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #e8e8ec;
+}
+
+.gameRoot {
+  position: fixed;
+  inset: 0;
+}
+
+.gameCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.gameHud {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 15;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-width: 18rem;
+}
+
+.hudPanel {
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  background: rgba(18, 18, 24, 0.82);
+  border: 1px solid #3a3a48;
+  backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.hudPanelLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #9898a8;
+}
+
+.fireModeToggle {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.fireModeBtn {
+  flex: 1;
+  padding: 0.35rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid #3a3a48;
+  background: #222228;
+  color: #9898a8;
+  font-size: 0.72rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.fireModeBtn:hover {
+  background: #2e2e38;
+}
+
+.fireModeBtn.active {
+  background: #3a2828;
+  border-color: #c44a3a;
+  color: #e8e8ec;
+}
+
+.hudAmmo {
+  gap: 0.25rem;
+}
+
+.hudAmmoPrimary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.2rem;
+}
+
+.hudAmmoCount {
+  font-size: 1.35rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #e8e8ec;
+  line-height: 1;
+}
+
+.hudAmmoCap {
+  font-size: 0.8rem;
+  color: #9898a8;
+  font-variant-numeric: tabular-nums;
+}
+
+.hudAmmoMags {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: #b0b0bc;
+}
+
+.hudAmmoMagsLabel {
+  color: #9898a8;
+}
+
+.hudAmmoMagsCount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #e8e8ec;
+}
+
+.hudAmmoMagsHint {
+  font-size: 0.72rem;
+  color: #787888;
+}
+
+.fpsCounter {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 15;
+  pointer-events: none;
+  padding: 0.4rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid #3a3a48;
+  background: rgba(18, 18, 24, 0.82);
+  color: #9898a8;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+  backdrop-filter: blur(6px);
+}
+
+.settingRow,
+.sliderRow {
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(18, 18, 24, 0.82);
+  border: 1px solid #3a3a48;
+  font-size: 0.85rem;
+  color: #d8d8e4;
+  backdrop-filter: blur(6px);
+}
+
+.settingRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.sliderRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  cursor: default;
+}
+
+.sliderLabel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.sliderLabel output {
+  color: #9898a8;
+  font-size: 0.75rem;
+}
+
+.sliderRow input[type="range"] {
+  width: 100%;
+  accent-color: #c44a3a;
+  cursor: pointer;
+}
+
+.settingRow input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #c44a3a;
+  cursor: pointer;
+}
+
+.settingsHint kbd {
+  display: inline-block;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: #222228;
+  border: 1px solid #3a3a48;
+  font-size: 0.9em;
+  font-family: inherit;
+}
+
+.settingsBtn {
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #3a3a48;
+  background: rgba(18, 18, 24, 0.82);
+  color: #e8e8ec;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.settingsBtn:hover {
+  background: rgba(34, 34, 40, 0.92);
+}
+
+.settingsBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 6, 10, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.settingsModal {
+  width: min(22rem, calc(100vw - 2rem));
+  max-height: min(90vh, 40rem);
+  overflow-y: auto;
+  padding: 1rem;
+  border-radius: 12px;
+  background: rgba(18, 18, 24, 0.96);
+  border: 1px solid #3a3a48;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.settingsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.settingsHeader h2 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.settingsClose {
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid #3a3a48;
+  background: #222228;
+  color: #d8d8e4;
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.settingsClose:hover {
+  background: #2e2e38;
+}
+
+.settingsGroup {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9898a8;
+  margin-top: 0.25rem;
+}
+
+.settingsGroup:first-of-type {
+  margin-top: 0;
+}
+
+.settingsHint {
+  font-size: 0.75rem;
+  color: #9898a8;
+  margin-top: 0.15rem;
+}
+
+.rebindPrompt {
+  font-size: 0.78rem;
+  color: #c44a3a;
+  padding: 0.45rem 0.55rem;
+  border-radius: 6px;
+  background: rgba(196, 74, 58, 0.12);
+  border: 1px solid rgba(196, 74, 58, 0.35);
+}
+
+.bindingsList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+}
+
+.bindingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(34, 34, 40, 0.6);
+  font-size: 0.8rem;
+}
+
+.bindingLabel {
+  color: #d8d8e4;
+  flex: 1;
+  min-width: 0;
+}
+
+.bindingKey {
+  min-width: 3.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 5px;
+  border: 1px solid #3a3a48;
+  background: #222228;
+  color: #e8e8ec;
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+}
+
+.bindingKey:hover {
+  background: #2e2e38;
+  border-color: #c44a3a;
+}
+
+.bindingKeyActive {
+  border-color: #c44a3a;
+  background: #3a2828;
+  color: #ffccbb;
+}
+
+.bindingKeyFixed {
+  cursor: default;
+  color: #9898a8;
+  background: #1a1a20;
+}
+
+.bindingRowFixed .bindingKey:hover {
+  border-color: #3a3a48;
+  background: #1a1a20;
+}
+
+.bindingsReset {
+  width: 100%;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+}
+
+.compassOverlay {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 15;
+  pointer-events: none;
+  width: 4.25rem;
+  height: 4.25rem;
+  border-radius: 50%;
+  border: 1px solid #3a3a48;
+  background: rgba(18, 18, 24, 0.82);
+  backdrop-filter: blur(6px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.compassDial {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
+.compassMark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 0.38rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #9898a8;
+  transform-origin: 50% 50%;
+}
+
+.compassN {
+  color: #e8e8ec;
+}
+
+.compassE {
+  transform: rotate(90deg);
+}
+
+.compassS {
+  transform: rotate(180deg);
+}
+
+.compassW {
+  transform: rotate(270deg);
+}
+
+.compassHeading {
+  position: absolute;
+  left: 50%;
+  top: 0.42rem;
+  width: 0;
+  height: 0;
+  margin-left: -4px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid #c44a3a;
+  filter: drop-shadow(0 0 2px rgba(196, 74, 58, 0.45));
+}
+
+.crosshair {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0.85;
+}
+
+.crosshairVisible {
+  opacity: 0.85;
+}
+
+.crosshair::before,
+.crosshair::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.crosshair::before {
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  margin-left: -1px;
+}
+
+.crosshair::after {
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  margin-top: -1px;
+}
+
+.weaponTunePanel {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 15;
+  pointer-events: auto;
+  width: min(14.5rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  padding: 0.65rem;
+  border-radius: 10px;
+  background: rgba(18, 18, 24, 0.88);
+  border: 1px solid #3a3a48;
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.weaponTuneTitle {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e8e8ec;
+}
+
+.weaponTuneTabs {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.weaponTuneTab {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #3a3a48;
+  background: #222228;
+  color: #9898a8;
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.weaponTuneTab.active {
+  background: #3a2828;
+  border-color: #c44a3a;
+  color: #e8e8ec;
+}
+
+.weaponTuneTab:hover {
+  background: #2e2e38;
+}
+
+.weaponTuneActions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+}
+
+.weaponTuneActions .settingsBtn {
+  flex: 1;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.weaponTunePanel .sliderRow {
+  padding: 0.4rem 0.55rem;
+}
+
+.poseControl {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.35rem 0.45rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.poseControl .sliderLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: #b0b0bc;
+}
+
+.poseControl .sliderLabel output {
+  color: #e8e8ec;
+  font-variant-numeric: tabular-nums;
+}
+
+.poseRange {
+  width: 100%;
+  accent-color: #c44a3a;
+}
+
+.poseNudgeRow {
+  display: grid;
+  grid-template-columns: 1.75rem 1fr 1.75rem;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.poseNudgeBtn {
+  padding: 0.2rem 0;
+  border-radius: 4px;
+  border: 1px solid #3a3a48;
+  background: #222228;
+  color: #e8e8ec;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.poseNudgeBtn:hover {
+  background: #2e2e38;
+  border-color: #c44a3a;
+}
+
+.poseNumber {
+  width: 100%;
+  min-width: 0;
+  padding: 0.2rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid #3a3a48;
+  background: #16161c;
+  color: #e8e8ec;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, monospace;
+}
+
+.poseNumber:focus {
+  outline: none;
+  border-color: #c44a3a;
+}
+
+.weaponTunePanel .settingsGroup {
+  margin-top: 0.15rem;
+  margin-bottom: 0;
+}

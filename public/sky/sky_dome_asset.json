@@ -1,0 +1,67 @@
+{
+  "asset_type": "sky_dome",
+  "name": "Day Sky Dome",
+  "version": "2.1",
+  "format": "equirectangular",
+  "resolution": {
+    "width": 1024,
+    "height": 512
+  },
+  "files": {
+    "primary_png": "sky_dome_equirectangular.jpg",
+    "primary_jpg": "sky_dome_equirectangular.jpg",
+    "preview": "sky_dome_equirectangular.jpg",
+    "sample_mesh_obj": "sky_dome_hemisphere_inward.obj",
+    "sample_mesh_mtl": "sky_dome_hemisphere_inward.mtl"
+  },
+  "implementation": {
+    "mapping": "Use as an equirectangular environment texture or apply to the inside of a hemisphere or sphere.",
+    "recommended_geometry": "Sphere or hemisphere with inward-facing normals.",
+    "material_settings": {
+      "unlit": true,
+      "double_sided": true,
+      "cast_shadows": false,
+      "receive_shadows": false,
+      "depth_write": false,
+      "sRGBTexture": true
+    },
+    "orientation": {
+      "up_axis": "Y",
+      "horizon_position": 0.78,
+      "zenith": "top edge center of the texture",
+      "seam_location": "left/right vertical edge"
+    },
+    "engine_notes": {
+      "unity": {
+        "usage": "Import texture, set Max Size to 8192, and map onto an inverted sphere/hemisphere or use a skybox shader that supports lat-long textures.",
+        "texture_settings": {
+          "max_size": 8192,
+          "compression": "High Quality or None",
+          "mipmaps": true
+        }
+      },
+      "unreal": {
+        "usage": "Import as Texture2D and plug into an unlit material on an inverted sky sphere.",
+        "texture_settings": {
+          "lod_group": "Skybox",
+          "compression": "Default",
+          "mipmaps": true
+        }
+      },
+      "godot": {
+        "usage": "Use on a SphereMesh with flipped faces or convert for PanoramaSkyMaterial if needed.",
+        "texture_settings": {
+          "repeat": true,
+          "filter": true,
+          "mipmaps": true
+        }
+      }
+    }
+  },
+  "visual_description": {
+    "time_of_day": "daylight",
+    "cloud_style": "cumulus and wispy cirrus with horizon haze",
+    "sky_color": "deep blue zenith fading to pale horizon"
+  },
+  "authoring_note": "Texture generated and packaged for skydome use. Best for background skies in 3D engines."
+}
