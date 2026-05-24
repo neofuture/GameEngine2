@@ -33,6 +33,10 @@ import {
   WORLD_LAYER,
 } from "@/lib/LightingLayers";
 import { isPointInsideAnyRoom } from "@/lib/RoomPlacement";
+import {
+  initCandleFlicker,
+  updateCandleFlicker,
+} from "@/lib/CandleFlicker";
 import { getArenaAttachWall } from "@/lib/DoorwayWall";
 import { createInput } from "@/lib/Input";
 import { createPlayerController } from "@/lib/PlayerController";
@@ -231,6 +235,8 @@ export default function FpsGame() {
   const skyRef = useRef(null);
   const weaponRef = useRef(null);
   const hemiRef = useRef(null);
+  const roomLightsRef = useRef([]);
+  const dayNightToggleRef = useRef(null);
   const [hemiDay, setHemiDay] = useState(() => ({ ...DEFAULT_HEMI_DAY }));
   const [hemiNight, setHemiNight] = useState(() => ({ ...DEFAULT_HEMI_NIGHT }));
   const hemiDayRef = useRef({ ...DEFAULT_HEMI_DAY });
@@ -450,6 +456,10 @@ export default function FpsGame() {
       const attachWall = getArenaAttachWall(arena);
       const arenaHalf = arena.size / 2;
       const roomLights = addRoomLights(scene, arena.rooms, arenaHalf, attachWall);
+      // Give the warm interior point lights a candle-like flicker so the
+      // off-arena room feels alive instead of locked to a flat brightness.
+      initCandleFlicker(roomLights);
+      roomLightsRef.current = roomLights;
       ensureRoomInteriorAmbient(scene);
       syncLightLayersForZone(scene, false, outdoorLights, roomLights);
       setFloorDeckY(getArenaFloorDeckY());
@@ -811,6 +821,10 @@ export default function FpsGame() {
           }
         }
 
+        // Candle-flicker the warm interior lights. Uses rAF's absolute
+        // timestamp so the wobble keeps phase across frame-time hitches.
+        updateCandleFlicker(roomLightsRef.current, now * 0.001);
+
         const locked = input.isLocked();
         const aimHeld =
           !rebindActionRef.current &&
@@ -835,6 +849,16 @@ export default function FpsGame() {
           wasBindingPressed(input, bindingsRef.current, "flashlight")
         ) {
           weapon?.toggleFlashlight();
+        }
+
+        if (
+          canUseWeapons &&
+          wasBindingPressed(input, bindingsRef.current, "dayNightToggle")
+        ) {
+          // Toggle from the latest ref value so we don't fight the smooth
+          // fade — handleDayNightChange just updates the target, the
+          // animate loop slews toward it.
+          dayNightToggleRef.current?.(!sunIsDayRef.current);
         }
 
         weapon?.update(camera, aimTarget, dt, weaponTuningRef, {
@@ -1044,6 +1068,10 @@ export default function FpsGame() {
     if (isDay) refitSunShadowRef.current?.();
     else refitMoonShadowRef.current?.();
   };
+  // Keep the ref pointing at the current closure so the animate loop and
+  // any keypress handler can always call the latest version (without
+  // having to be re-declared inside the init effect).
+  dayNightToggleRef.current = handleDayNightChange;
 
   return (
     <div className="gameRoot">
