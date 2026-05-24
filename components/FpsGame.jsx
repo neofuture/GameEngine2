@@ -7,16 +7,21 @@ import { collectArenaTextureIds, loadArenaConfig } from "@/lib/loadArena";
 import { loadLevelTextureLibrary } from "@/lib/LevelTextures";
 import {
   createSkyDome,
-  DEFAULT_SKY_DOME_SCALE,
-  SKY_DOME_SCALE_MIN,
-  SKY_DOME_SCALE_MAX,
   addRoomLights,
+  ensureRoomInteriorAmbient,
+  applyDayNightAtmosphere,
+  applyDayNightEnvironment,
+  applyDayNightEnvironmentNightness,
   createOutdoorLights,
+  DAY_CLEAR_COLOR,
   enableShadowsOn,
   disableInteriorCastShadows,
   fitDirectionalLightShadow,
+  fitMoonDirectionalLightShadow,
+  registerOutdoorLightsForDayNight,
   renderSceneWithLayeredLighting,
   resetCameraRenderLayers,
+  resetRoomInteriorAmbient,
   resetViewmodelInteriorAmbient,
   syncLightLayersForZone,
 } from "@/lib/SceneEnvironment";
@@ -28,6 +33,7 @@ import {
   WORLD_LAYER,
 } from "@/lib/LightingLayers";
 import { isPointInsideAnyRoom } from "@/lib/RoomPlacement";
+import { getArenaAttachWall } from "@/lib/DoorwayWall";
 import { createInput } from "@/lib/Input";
 import { createPlayerController } from "@/lib/PlayerController";
 import { createBulletPool, loadViewWeapon } from "@/lib/ViewWeapon";
@@ -54,6 +60,51 @@ import {
   saveWeaponTuneEnabled,
 } from "@/lib/WeaponTuning";
 import WeaponTunePanel from "@/components/WeaponTunePanel";
+import SunTunePanel from "@/components/SunTunePanel";
+import StairTunePanel from "@/components/StairTunePanel";
+import HemisphereTunePanel from "@/components/HemisphereTunePanel";
+import WalkBobTunePanel from "@/components/WalkBobTunePanel";
+import { SettingsSection } from "@/components/SettingsSection";
+import {
+  DEFAULT_HEMI_DAY,
+  DEFAULT_HEMI_NIGHT,
+  applyHemisphereSettings,
+  loadHemiDay,
+  loadHemiNight,
+  saveHemiDay,
+  saveHemiNight,
+} from "@/lib/HemisphereTuning";
+import {
+  getArenaCatwalkDeckY,
+  getArenaFloorDeckY,
+  loadStairTuning,
+  saveStairTuning,
+} from "@/lib/StairTuning";
+import {
+  applySunLightPosition,
+  loadSunAngles,
+  loadSunDayMode,
+  saveSunAngles,
+  saveSunDayMode,
+  sunPositionFromAngles,
+} from "@/lib/SunLightTuning";
+import {
+  applyMoonLightPosition,
+  loadMoonAngles,
+  loadMoonIntensity,
+  moonPositionFromAngles,
+  saveMoonAngles,
+  saveMoonIntensity,
+} from "@/lib/MoonLightTuning";
+import {
+  DEFAULT_WALK_BOB_SIMPLE,
+  loadWalkBobTuneEnabled,
+  loadWalkBobTuning,
+  normalizeWalkBobSimple,
+  resolveWalkBobTuning,
+  saveWalkBobTuneEnabled,
+  saveWalkBobTuning,
+} from "@/lib/WalkBobTuning";
 import ControlsPanel from "@/components/ControlsPanel";
 import CompassOverlay from "@/components/CompassOverlay";
 import {
@@ -69,11 +120,15 @@ const KEYBOARD_EASE_KEY = "fps-keyboard-ease";
 const MOUSE_LOOK_KEY = "fps-mouse-look";
 const MOUSE_EASE_KEY = "fps-mouse-ease";
 const LOOK_MAX_RATE_KEY = "fps-look-max-rate";
-const SKY_DOME_SCALE_KEY = "fps-sky-dome-scale";
+const SUN_TUNE_ENABLED_KEY = "fps-sun-tune-enabled";
+const HEMI_TUNE_ENABLED_KEY = "fps-hemi-tune-enabled";
+const STAIRS_TUNE_ENABLED_KEY = "fps-stairs-tune-enabled";
 const LEGACY_LOOK_SPEED_KEY = "fps-look-speed";
 const LEGACY_LOOK_EASE_KEY = "fps-look-ease";
 const DEFAULT_LOOK = 7;
 const DEFAULT_MAX_LOOK_RATE = 2.5;
+/** Seconds for the day/night toggle to crossfade from one state to the other. */
+const DAY_NIGHT_FADE_DURATION = 10;
 const MAGAZINE_SIZE = 80;
 const SPARE_MAGAZINES = 4;
 const BURST_SHOT_COUNT = 3;
@@ -111,7 +166,27 @@ export default function FpsGame() {
   const [mouseLook, setMouseLook] = useState(DEFAULT_LOOK);
   const [mouseEase, setMouseEase] = useState(DEFAULT_LOOK);
   const [maxLookRate, setMaxLookRate] = useState(DEFAULT_MAX_LOOK_RATE);
-  const [skyDomeScale, setSkyDomeScale] = useState(DEFAULT_SKY_DOME_SCALE);
+  const [sunAzimuth, setSunAzimuth] = useState(() => loadSunAngles().azimuth);
+  const [sunElevation, setSunElevation] = useState(() => loadSunAngles().elevation);
+  const initialMoonAngles = loadMoonAngles();
+  const [moonAzimuth, setMoonAzimuth] = useState(initialMoonAngles.azimuth);
+  const [moonElevation, setMoonElevation] = useState(initialMoonAngles.elevation);
+  const [moonIntensity, setMoonIntensity] = useState(() => loadMoonIntensity());
+  const [sunIsDay, setSunIsDay] = useState(() => loadSunDayMode());
+  const initialStairTuning = loadStairTuning();
+  const initialWalkBobTuning = loadWalkBobTuning();
+  const [stairX, setStairX] = useState(initialStairTuning.position.x);
+  const [stairY, setStairY] = useState(initialStairTuning.position.y);
+  const [stairZ, setStairZ] = useState(initialStairTuning.position.z);
+  const [stairRotationY, setStairRotationY] = useState(initialStairTuning.rotationY);
+  const [arenaHasStairs, setArenaHasStairs] = useState(false);
+  const [stairsTuneEnabled, setStairsTuneEnabled] = useState(false);
+  const [walkBobTuneEnabled, setWalkBobTuneEnabled] = useState(false);
+  const [walkBobTuning, setWalkBobTuning] = useState(initialWalkBobTuning);
+  const [sunTuneEnabled, setSunTuneEnabled] = useState(false);
+  const [hemiTuneEnabled, setHemiTuneEnabled] = useState(false);
+  const [floorDeckY, setFloorDeckY] = useState(0);
+  const [catwalkDeckY, setCatwalkDeckY] = useState(4.13);
   const [pointerLocked, setPointerLocked] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
@@ -128,8 +203,38 @@ export default function FpsGame() {
   const mouseLookRef = useRef(DEFAULT_LOOK);
   const mouseEaseRef = useRef(DEFAULT_LOOK);
   const maxLookRateRef = useRef(DEFAULT_MAX_LOOK_RATE);
-  const skyDomeScaleRef = useRef(DEFAULT_SKY_DOME_SCALE);
+  const storedSunAngles = loadSunAngles();
+  const sunAnglesRef = useRef(storedSunAngles);
+  const sunLightPosRef = useRef(
+    sunPositionFromAngles(storedSunAngles.azimuth, storedSunAngles.elevation)
+  );
+  const moonAnglesRef = useRef(initialMoonAngles);
+  const moonIntensityRef = useRef(loadMoonIntensity());
+  const moonLightPosRef = useRef(
+    moonPositionFromAngles(initialMoonAngles.azimuth, initialMoonAngles.elevation)
+  );
+  const refitSunShadowRef = useRef(null);
+  const refitMoonShadowRef = useRef(null);
+  const rebuildStairsRef = useRef(null);
+  const stairParamsRef = useRef(initialStairTuning);
+  const walkBobTuningRef = useRef(initialWalkBobTuning);
+  const sunRef = useRef(null);
+  const moonRef = useRef(null);
+  const sunBaseIntensityRef = useRef(2.85);
+  const sunIsDayRef = useRef(loadSunDayMode());
+  const applyDayNightRef = useRef(null);
+  // Continuous 0 (full day) → 1 (full night) value driving the day/night fade.
+  // `target` is set instantly by the toggle; `cur` is slewed toward it in the
+  // animate loop so every light/atmosphere/hemi setting eases together.
+  const dayNightTargetNightnessRef = useRef(loadSunDayMode() ? 0 : 1);
+  const dayNightCurNightnessRef = useRef(loadSunDayMode() ? 0 : 1);
   const skyRef = useRef(null);
+  const weaponRef = useRef(null);
+  const hemiRef = useRef(null);
+  const [hemiDay, setHemiDay] = useState(() => ({ ...DEFAULT_HEMI_DAY }));
+  const [hemiNight, setHemiNight] = useState(() => ({ ...DEFAULT_HEMI_NIGHT }));
+  const hemiDayRef = useRef({ ...DEFAULT_HEMI_DAY });
+  const hemiNightRef = useRef({ ...DEFAULT_HEMI_NIGHT });
   const [weaponPoseMode, setWeaponPoseMode] = useState("hip");
   const [hipWeaponPose, setHipWeaponPose] = useState(DEFAULT_HIP_POSE);
   const [adsWeaponPose, setAdsWeaponPose] = useState(DEFAULT_ADS_POSE);
@@ -157,6 +262,12 @@ export default function FpsGame() {
     setAdsWeaponPose(tuning.ads);
     setBodyLookUpAmount(loadBodyLookUpAmount());
     setBodyLookDownAmount(loadBodyLookDownAmount());
+    const storedHemiDay = loadHemiDay();
+    const storedHemiNight = loadHemiNight();
+    setHemiDay(storedHemiDay);
+    setHemiNight(storedHemiNight);
+    hemiDayRef.current = storedHemiDay;
+    hemiNightRef.current = storedHemiNight;
     weaponTuningRef.current = {
       ...tuning,
       bodyLookUpAmount: loadBodyLookUpAmount(),
@@ -171,6 +282,7 @@ export default function FpsGame() {
     bodyLookDownAmount,
   };
   weaponPoseModeRef.current = weaponPoseMode;
+  walkBobTuningRef.current = walkBobTuning;
   bindingsRef.current = bindings;
   rebindActionRef.current = rebindAction;
   fireModeRef.current = fireMode;
@@ -218,23 +330,28 @@ export default function FpsGame() {
     const mLook = read(MOUSE_LOOK_KEY, speedFallback);
     const mEase = read(MOUSE_EASE_KEY, easeFallback);
     const maxRate = read(LOOK_MAX_RATE_KEY, DEFAULT_MAX_LOOK_RATE);
-    const skyScale = read(SKY_DOME_SCALE_KEY, DEFAULT_SKY_DOME_SCALE);
     const tuneEnabled = loadWeaponTuneEnabled();
+    const sunEnabled = localStorage.getItem(SUN_TUNE_ENABLED_KEY) === "true";
+    const hemiEnabled = localStorage.getItem(HEMI_TUNE_ENABLED_KEY) === "true";
+    const stairsEnabled = localStorage.getItem(STAIRS_TUNE_ENABLED_KEY) === "true";
+    const walkBobEnabled = loadWalkBobTuneEnabled();
     setInvertYLook(storedInvert);
     setWeaponTuneEnabled(tuneEnabled);
+    setSunTuneEnabled(sunEnabled);
+    setHemiTuneEnabled(hemiEnabled);
+    setStairsTuneEnabled(stairsEnabled);
+    setWalkBobTuneEnabled(walkBobEnabled);
     setKeyboardLook(kbLook);
     setKeyboardEase(kbEase);
     setMouseLook(mLook);
     setMouseEase(mEase);
     setMaxLookRate(maxRate);
-    setSkyDomeScale(skyScale);
     invertYRef.current = storedInvert;
     keyboardLookRef.current = kbLook;
     keyboardEaseRef.current = kbEase;
     mouseLookRef.current = mLook;
     mouseEaseRef.current = mEase;
     maxLookRateRef.current = maxRate;
-    skyDomeScaleRef.current = skyScale;
   }, []);
 
   invertYRef.current = invertYLook;
@@ -243,7 +360,17 @@ export default function FpsGame() {
   mouseLookRef.current = mouseLook;
   mouseEaseRef.current = mouseEase;
   maxLookRateRef.current = maxLookRate;
-  skyDomeScaleRef.current = skyDomeScale;
+  sunAnglesRef.current = { azimuth: sunAzimuth, elevation: sunElevation };
+  sunLightPosRef.current = sunPositionFromAngles(sunAzimuth, sunElevation);
+  moonAnglesRef.current = { azimuth: moonAzimuth, elevation: moonElevation };
+  moonIntensityRef.current = moonIntensity;
+  moonLightPosRef.current = moonPositionFromAngles(moonAzimuth, moonElevation);
+  sunIsDayRef.current = sunIsDay;
+  const commitStairParams = (params) => {
+    stairParamsRef.current = params;
+    saveStairTuning(params);
+    rebuildStairsRef.current?.(params);
+  };
   settingsOpenRef.current = settingsOpen;
   controlsOpenRef.current = controlsOpen;
   weaponTuneEnabledRef.current = weaponTuneEnabled;
@@ -287,10 +414,10 @@ export default function FpsGame() {
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.0;
       renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.setClearColor(0xb8daf0, 1);
+      renderer.setClearColor(DAY_CLEAR_COLOR, 1);
 
       scene = new THREE.Scene();
-      scene.fog = new THREE.Fog(0xb8daf0, 45, 95);
+      scene.fog = new THREE.Fog(DAY_CLEAR_COLOR, 45, 95);
 
       const HIP_FOV = 75;
       const ADS_FOV = 52;
@@ -314,14 +441,31 @@ export default function FpsGame() {
       );
       if (!isActive()) return;
 
-      const { sun, outdoorLights } = createOutdoorLights(scene, {
-        sheltered: (arena.ceilingThickness ?? 0) > 0,
+      const sheltered = (arena.ceilingThickness ?? 0) > 0;
+      const { sun, moon, hemi, outdoorLights } = createOutdoorLights(scene, {
+        sheltered,
       });
-      const attachWall = arena.doorway?.wall === "north" ? "north" : "south";
+      hemiRef.current = hemi;
+      registerOutdoorLightsForDayNight(outdoorLights);
+      const attachWall = getArenaAttachWall(arena);
       const arenaHalf = arena.size / 2;
       const roomLights = addRoomLights(scene, arena.rooms, arenaHalf, attachWall);
+      ensureRoomInteriorAmbient(scene);
       syncLightLayersForZone(scene, false, outdoorLights, roomLights);
-      level = createLevelFromArena(scene, arena, levelTextures);
+      setFloorDeckY(getArenaFloorDeckY());
+      setCatwalkDeckY(getArenaCatwalkDeckY(arena));
+      let stairParams = loadStairTuning(arena.stairs, arena);
+      stairParamsRef.current = stairParams;
+      setStairX(stairParams.position.x);
+      setStairY(stairParams.position.y);
+      setStairZ(stairParams.position.z);
+      setStairRotationY(stairParams.rotationY);
+      level = createLevelFromArena(
+        scene,
+        { ...arena, stairs: stairParams },
+        levelTextures
+      );
+      setArenaHasStairs(Boolean(arena.stairs));
       if (!isActive()) {
         if (level?.group) disposeLevelGroup(level.group);
         levelTextures?.dispose();
@@ -331,14 +475,141 @@ export default function FpsGame() {
       assignWorldLayers(level.group);
       disableInteriorCastShadows(level.group);
       setHealthBarOccluders(level.group);
-      fitDirectionalLightShadow(sun, level.group, {
-        arenaSize: arena.size,
-      });
+      applySunLightPosition(sun, sunLightPosRef.current);
+      applyMoonLightPosition(moon, moonLightPosRef.current);
+      sunRef.current = sun;
+      moonRef.current = moon;
+      sunBaseIntensityRef.current = sun.intensity;
+      applyDayNightRef.current = (arg) => {
+        // Accept either a boolean (legacy `isDay`) or a 0..1 nightness so
+        // callers don't all have to be updated at once. The animate loop
+        // passes the current nightness directly each frame.
+        const nightness =
+          typeof arg === "boolean"
+            ? arg ? 0 : 1
+            : THREE.MathUtils.clamp(arg ?? dayNightCurNightnessRef.current, 0, 1);
+        dayNightCurNightnessRef.current = nightness;
+
+        // Drive the sun across the sky from its configured elevation down
+        // through the horizon to a mirrored elevation below it, while the
+        // moon rises from the opposite (below-horizon) angle up to its
+        // configured peak. At nightness=0.5 both lights are at the horizon
+        // casting long shadows — that's the dawn/dusk moment.
+        const sunCfg = sunAnglesRef.current;
+        const moonCfg = moonAnglesRef.current;
+        const sunElev = THREE.MathUtils.lerp(
+          sunCfg.elevation,
+          -sunCfg.elevation,
+          nightness
+        );
+        const moonElev = THREE.MathUtils.lerp(
+          -moonCfg.elevation,
+          moonCfg.elevation,
+          nightness
+        );
+        const animSunPos = sunPositionFromAngles(sunCfg.azimuth, sunElev);
+        const animMoonPos = moonPositionFromAngles(moonCfg.azimuth, moonElev);
+
+        applySunLightPosition(sun, animSunPos);
+
+        applyDayNightEnvironmentNightness(
+          sun,
+          scene,
+          renderer,
+          sky ?? skyRef.current,
+          {
+            outdoorLights,
+            sheltered,
+            sunBaseIntensity: sunBaseIntensityRef.current,
+            moon,
+            moonIntensity: moonIntensityRef.current,
+            moonPosition: animMoonPos,
+            nightness,
+            levelRoot: level?.group ?? null,
+          }
+        );
+
+        // Override the linear nightness-based intensity with an elevation-
+        // based one. Each light fades naturally as it approaches the horizon
+        // and is gone once it dips below — this is also what kills shadows
+        // before they'd otherwise render from below the floor.
+        const sunFactor = THREE.MathUtils.smoothstep(sunElev, -2, 5);
+        const moonFactor = THREE.MathUtils.smoothstep(moonElev, -2, 5);
+        sun.intensity = sunBaseIntensityRef.current * sunFactor;
+        sun.castShadow = sun.intensity > 0.001;
+        moon.intensity = moonIntensityRef.current * moonFactor;
+        moon.castShadow = moon.intensity > 0.001;
+
+        // Pin the sky's sun/moon billboards to the same animated positions so
+        // the discs visibly track the light sources. Opacity follows each
+        // light's elevation factor so the disc fades with the actual lighting
+        // contribution (and disappears below the horizon).
+        const activeSky = sky ?? skyRef.current;
+        if (activeSky) {
+          activeSky.setSunPosition?.(animSunPos);
+          activeSky.setMoonPosition?.(animMoonPos);
+          activeSky.setSunOpacity?.(sunFactor);
+          activeSky.setMoonOpacity?.(moonFactor);
+        }
+
+        // Hemi is user-tunable per mode — lerp temperature + intensity between
+        // the two stored settings so the sky/ground hemi color eases too.
+        const dayHemi = hemiDayRef.current;
+        const nightHemi = hemiNightRef.current;
+        applyHemisphereSettings(hemiRef.current, {
+          temperature: THREE.MathUtils.lerp(
+            dayHemi.temperature,
+            nightHemi.temperature,
+            nightness
+          ),
+          intensity: THREE.MathUtils.lerp(
+            dayHemi.intensity,
+            nightHemi.intensity,
+            nightness
+          ),
+        });
+      };
+      refitSunShadowRef.current = () => {
+        if (!level?.group) return;
+        applySunLightPosition(sun, sunLightPosRef.current);
+        fitDirectionalLightShadow(sun, level.group, {
+          arenaSize: arena.size,
+        });
+        sun.updateMatrixWorld(true);
+        sun.target.updateMatrixWorld(true);
+      };
+      refitMoonShadowRef.current = () => {
+        if (!level?.group || !moon) return;
+        applyMoonLightPosition(moon, moonLightPosRef.current);
+        fitMoonDirectionalLightShadow(moon, level.group, {
+          arenaSize: arena.size,
+        });
+        moon.updateMatrixWorld(true);
+        moon.target.updateMatrixWorld(true);
+      };
+      applyDayNightRef.current(sunIsDayRef.current);
+      if (sunIsDayRef.current) {
+        refitSunShadowRef.current();
+      } else {
+        refitMoonShadowRef.current();
+      }
       sun.updateMatrixWorld(true);
       sun.target.updateMatrixWorld(true);
+      moon.updateMatrixWorld(true);
+      moon.target.updateMatrixWorld(true);
       input = createInput(canvas, () => bindingsRef.current);
+      rebuildStairsRef.current = (params) => {
+        if (!level?.rebuildStairs) return;
+        level.rebuildStairs(params);
+      };
+
       player = createPlayerController(camera, level.bounds, level.floorY, {
-        colliders: level.colliders,
+        getColliders: () => [
+          ...level.colliders,
+          ...level.stairColliders,
+          ...level.ceilingColliders,
+        ],
+        getGroundSurfaces: () => level.groundSurfaces,
         getBindings: () => bindingsRef.current,
         getInvertYLook: () => invertYRef.current,
         getKeyboardLookSpeed: () => keyboardLookRef.current,
@@ -346,6 +617,8 @@ export default function FpsGame() {
         getMouseLookSpeed: () => mouseLookRef.current,
         getMouseLookEase: () => mouseEaseRef.current,
         getMaxLookRate: () => maxLookRateRef.current,
+        getWalkBobTuning: () =>
+          resolveWalkBobTuning(walkBobTuningRef.current),
       });
 
       const shootRaycaster = new THREE.Raycaster();
@@ -357,6 +630,7 @@ export default function FpsGame() {
           return;
         }
         weapon = loaded;
+        weaponRef.current = loaded;
         weapon.update(camera, 0, 0, weaponTuningRef);
       })
         .catch((err) => console.error("Rifle model failed to load:", err));
@@ -544,6 +818,10 @@ export default function FpsGame() {
         const aimTabActive =
           weaponTuneEnabledRef.current && weaponPoseModeRef.current === "ads";
         const aimTarget = aimHeld || aimTabActive ? 1 : 0;
+        const canUseWeapons =
+          !rebindActionRef.current &&
+          !settingsOpenRef.current &&
+          !controlsOpenRef.current;
 
         player.update(input, dt);
         if (compassDialRef.current) {
@@ -552,9 +830,18 @@ export default function FpsGame() {
         }
         camera.updateMatrixWorld(true);
 
+        if (
+          canUseWeapons &&
+          wasBindingPressed(input, bindingsRef.current, "flashlight")
+        ) {
+          weapon?.toggleFlashlight();
+        }
+
         weapon?.update(camera, aimTarget, dt, weaponTuningRef, {
           snapAim: !locked,
           moveSpeed: player.getHorizontalSpeed(),
+          onStairs: player.isOnStairs(),
+          walkBobTuning: resolveWalkBobTuning(walkBobTuningRef.current),
         });
 
         const aimBlend = weapon?.getAimBlend() ?? 0;
@@ -562,10 +849,6 @@ export default function FpsGame() {
         camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-12 * dt));
         camera.updateProjectionMatrix();
 
-        const canUseWeapons =
-          !rebindActionRef.current &&
-          !settingsOpenRef.current &&
-          !controlsOpenRef.current;
         const keyboardShoot =
           canUseWeapons &&
           isBindingDown(input, bindingsRef.current, "shoot");
@@ -587,6 +870,18 @@ export default function FpsGame() {
           setFireMode(next);
         }
 
+        const dnTarget = dayNightTargetNightnessRef.current;
+        let dnCur = dayNightCurNightnessRef.current;
+        if (dnCur !== dnTarget) {
+          const dnStep = dt / DAY_NIGHT_FADE_DURATION;
+          dnCur =
+            dnTarget > dnCur
+              ? Math.min(dnTarget, dnCur + dnStep)
+              : Math.max(dnTarget, dnCur - dnStep);
+          dayNightCurNightnessRef.current = dnCur;
+          applyDayNightRef.current?.(dnCur);
+        }
+
         updateBullets(dt);
         updateTargetsRepair(level.targets, dt);
         updateTargetHealthBars(level.targets, dt, camera);
@@ -605,7 +900,9 @@ export default function FpsGame() {
 
         sky?.update(camera);
         resetCameraRenderLayers(camera);
-        renderSceneWithLayeredLighting(renderer, scene, camera);
+        renderSceneWithLayeredLighting(renderer, scene, camera, {
+          skyRoot: sky?.mesh ?? null,
+        });
         if (level?.targets) {
           renderTargetHealthBarsPass(renderer, scene, camera, level.targets);
         }
@@ -661,21 +958,32 @@ export default function FpsGame() {
       if (level?.group && !level.group.parent) {
         scene.add(level.group);
       }
+      try {
+        const loaded = await createSkyDome(scene, { renderer });
+        if (!isActive()) {
+          loaded.dispose();
+          return;
+        }
+        sky = loaded;
+        skyRef.current = loaded;
+        loaded.update(camera);
+        applyDayNightAtmosphere(
+          scene,
+          renderer,
+          loaded,
+          sunIsDayRef.current
+        );
+        // Sky was loaded after the first applyDayNightRef pass, so the sun
+        // and moon discs are still at the origin / fully transparent. Re-run
+        // the applier with the current nightness so they snap into place.
+        applyDayNightRef.current?.(dayNightCurNightnessRef.current);
+      } catch (err) {
+        console.error("Sky dome failed to load:", err);
+      }
+
       gameReady = true;
       syncPointerLocked();
       rafId = requestAnimationFrame(animate);
-
-      createSkyDome(scene, skyDomeScaleRef.current)
-        .then((loaded) => {
-          if (!isActive()) {
-            loaded.dispose();
-            return;
-          }
-          sky = loaded;
-          skyRef.current = loaded;
-          loaded.update(camera);
-        })
-        .catch((err) => console.error("Sky dome failed to load:", err));
     }
 
     init().catch((err) => console.error("Game init failed:", err));
@@ -714,14 +1022,28 @@ export default function FpsGame() {
         bulletPool.dispose();
       }
       weapon?.dispose();
+      weaponRef.current = null;
+      hemiRef.current = null;
       input?.dispose();
       sky?.dispose();
       skyRef.current = null;
       resetViewmodelInteriorAmbient();
+      resetRoomInteriorAmbient();
       renderer.dispose();
       safeExitPointerLock();
     };
   }, []);
+
+  const handleDayNightChange = (isDay) => {
+    setSunIsDay(isDay);
+    sunIsDayRef.current = isDay;
+    saveSunDayMode(isDay);
+    // Setting the target lets the animate loop ease toward it; pre-fit the
+    // destination shadow caster so it's ready when its intensity rises.
+    dayNightTargetNightnessRef.current = isDay ? 0 : 1;
+    if (isDay) refitSunShadowRef.current?.();
+    else refitMoonShadowRef.current?.();
+  };
 
   return (
     <div className="gameRoot">
@@ -807,140 +1129,187 @@ export default function FpsGame() {
                 Close
               </button>
             </div>
-            <label className="settingRow">
-              <input
-                type="checkbox"
-                checked={invertYLook}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setInvertYLook(checked);
-                  invertYRef.current = checked;
-                  localStorage.setItem(INVERT_Y_KEY, String(checked));
-                }}
-              />
-              Invert look (mouse & arrows)
-            </label>
+            <SettingsSection title="General" defaultOpen>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={invertYLook}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setInvertYLook(checked);
+                    invertYRef.current = checked;
+                    localStorage.setItem(INVERT_Y_KEY, String(checked));
+                  }}
+                />
+                Invert look (mouse & arrows)
+              </label>
+            </SettingsSection>
 
-            <label className="settingRow">
-              <input
-                type="checkbox"
-                checked={weaponTuneEnabled}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setWeaponTuneEnabled(checked);
-                  weaponTuneEnabledRef.current = checked;
-                  saveWeaponTuneEnabled(checked);
-                  if (!checked) {
-                    weaponPoseModeRef.current = "hip";
-                    setWeaponPoseMode("hip");
-                  }
-                }}
-              />
-              Weapon tuning
-            </label>
-            <p className="settingsHint">
-              Shows the in-game weapon tune panel (hip / aim poses and look
-              shift sliders).
-            </p>
+            <SettingsSection title="Weapon">
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={weaponTuneEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setWeaponTuneEnabled(checked);
+                    weaponTuneEnabledRef.current = checked;
+                    saveWeaponTuneEnabled(checked);
+                    if (!checked) {
+                      weaponPoseModeRef.current = "hip";
+                      setWeaponPoseMode("hip");
+                    }
+                  }}
+                />
+                Weapon tuning
+              </label>
+              <p className="settingsHint">
+                Shows the in-game weapon tune panel (hip / aim poses and look
+                shift sliders).
+              </p>
+            </SettingsSection>
 
-            <p className="settingsGroup">Environment</p>
-            <label className="sliderRow">
-              <span className="sliderLabel">
-                Sky dome size <output>{Math.round(skyDomeScale)}</output>
-              </span>
-              <input
-                type="range"
-                min={SKY_DOME_SCALE_MIN}
-                max={SKY_DOME_SCALE_MAX}
-                step="25"
-                value={skyDomeScale}
-                onChange={(e) => {
-                  const value = parseFloat(e.target.value);
-                  setSkyDomeScale(value);
-                  skyDomeScaleRef.current = value;
-                  skyRef.current?.setScale(value);
-                  localStorage.setItem(SKY_DOME_SCALE_KEY, String(value));
-                }}
-              />
-            </label>
-            <p className="settingsHint">
-              Higher values show more of the sky panorama (less zoomed-in wrap).
-            </p>
+            <SettingsSection title="Keyboard">
+              <label className="sliderRow">
+                <span className="sliderLabel">
+                  Keyboard look <output>{keyboardLook.toFixed(1)}×</output>
+                </span>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="10"
+                  step="0.1"
+                  value={keyboardLook}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value);
+                    setKeyboardLook(value);
+                    keyboardLookRef.current = value;
+                    localStorage.setItem(KEYBOARD_LOOK_KEY, String(value));
+                  }}
+                />
+              </label>
+              <label className="sliderRow">
+                <span className="sliderLabel">
+                  Keyboard easing <output>{keyboardEase.toFixed(1)}</output>
+                </span>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  step="0.5"
+                  value={keyboardEase}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value);
+                    setKeyboardEase(value);
+                    keyboardEaseRef.current = value;
+                    localStorage.setItem(KEYBOARD_EASE_KEY, String(value));
+                  }}
+                />
+              </label>
+            </SettingsSection>
 
-            <p className="settingsGroup">Keyboard</p>
-            <label className="sliderRow">
-              <span className="sliderLabel">
-                Keyboard look <output>{keyboardLook.toFixed(1)}×</output>
-              </span>
-              <input
-                type="range"
-                min="0.5"
-                max="10"
-                step="0.1"
-                value={keyboardLook}
-                onChange={(e) => {
-                  const value = parseFloat(e.target.value);
-                  setKeyboardLook(value);
-                  keyboardLookRef.current = value;
-                  localStorage.setItem(KEYBOARD_LOOK_KEY, String(value));
-                }}
-              />
-            </label>
-            <label className="sliderRow">
-              <span className="sliderLabel">
-                Keyboard easing <output>{keyboardEase.toFixed(1)}</output>
-              </span>
-              <input
-                type="range"
-                min="1"
-                max="10"
-                step="0.5"
-                value={keyboardEase}
-                onChange={(e) => {
-                  const value = parseFloat(e.target.value);
-                  setKeyboardEase(value);
-                  keyboardEaseRef.current = value;
-                  localStorage.setItem(KEYBOARD_EASE_KEY, String(value));
-                }}
-              />
-            </label>
-            <p className="settingsGroup">Mouse</p>
-            <label className="sliderRow">
-              <span className="sliderLabel">
-                Mouse look <output>{mouseLook.toFixed(1)}×</output>
-              </span>
-              <input
-                type="range"
-                min="0.5"
-                max="10"
-                step="0.1"
-                value={mouseLook}
-                onChange={(e) => {
-                  const value = parseFloat(e.target.value);
-                  setMouseLook(value);
-                  mouseLookRef.current = value;
-                  localStorage.setItem(MOUSE_LOOK_KEY, String(value));
-                }}
-              />
-            </label>
-            <label className="sliderRow">
-              <span className="sliderLabel">
-                Mouse easing <output>{mouseEase.toFixed(1)}</output>
-              </span>
-              <input
-                type="range"
-                min="1"
-                max="10"
-                step="0.5"
-                value={mouseEase}
-                onChange={(e) => {
-                  const value = parseFloat(e.target.value);
-                  setMouseEase(value);
-                  mouseEaseRef.current = value;
-                  localStorage.setItem(MOUSE_EASE_KEY, String(value));
-                }}
-              />
-            </label>
+            <SettingsSection title="Mouse">
+              <label className="sliderRow">
+                <span className="sliderLabel">
+                  Mouse look <output>{mouseLook.toFixed(1)}×</output>
+                </span>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="10"
+                  step="0.1"
+                  value={mouseLook}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value);
+                    setMouseLook(value);
+                    mouseLookRef.current = value;
+                    localStorage.setItem(MOUSE_LOOK_KEY, String(value));
+                  }}
+                />
+              </label>
+              <label className="sliderRow">
+                <span className="sliderLabel">
+                  Mouse easing <output>{mouseEase.toFixed(1)}</output>
+                </span>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  step="0.5"
+                  value={mouseEase}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value);
+                    setMouseEase(value);
+                    mouseEaseRef.current = value;
+                    localStorage.setItem(MOUSE_EASE_KEY, String(value));
+                  }}
+                />
+              </label>
+            </SettingsSection>
+
+            <SettingsSection title="Environment">
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={sunTuneEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setSunTuneEnabled(checked);
+                    localStorage.setItem(SUN_TUNE_ENABLED_KEY, String(checked));
+                  }}
+                />
+                Sun / Moon tuning
+              </label>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={hemiTuneEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setHemiTuneEnabled(checked);
+                    localStorage.setItem(HEMI_TUNE_ENABLED_KEY, String(checked));
+                  }}
+                />
+                Sky fill tuning
+              </label>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={walkBobTuneEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setWalkBobTuneEnabled(checked);
+                    saveWalkBobTuneEnabled(checked);
+                  }}
+                />
+                Walk bob tuning
+              </label>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={stairsTuneEnabled}
+                  disabled={!arenaHasStairs}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setStairsTuneEnabled(checked);
+                    localStorage.setItem(
+                      STAIRS_TUNE_ENABLED_KEY,
+                      String(checked)
+                    );
+                  }}
+                />
+                Stairway tuning
+                {!arenaHasStairs && (
+                  <span className="settingsHint" style={{ marginLeft: "0.4rem" }}>
+                    (no stairs in this arena)
+                  </span>
+                )}
+              </label>
+              <p className="settingsHint">
+                Each toggle opens a floating tuning panel in the game UI. Use
+                the × on the panel to close it (the toggle stays remembered).
+              </p>
+            </SettingsSection>
           </div>
         </div>
       )}
@@ -957,6 +1326,174 @@ export default function FpsGame() {
           onRebindActionChange={setRebindAction}
         />
       )}
+      <div className="environmentTuneStack">
+        {sunTuneEnabled && (
+          <SunTunePanel
+            isDay={sunIsDay}
+            onDayNightChange={handleDayNightChange}
+            azimuth={sunAzimuth}
+            elevation={sunElevation}
+            onAzimuthChange={(value) => {
+              setSunAzimuth(value);
+              sunAnglesRef.current.azimuth = value;
+              sunLightPosRef.current = sunPositionFromAngles(
+                value,
+                sunAnglesRef.current.elevation
+              );
+              saveSunAngles(value, sunAnglesRef.current.elevation);
+              refitSunShadowRef.current?.();
+            }}
+            onElevationChange={(value) => {
+              setSunElevation(value);
+              sunAnglesRef.current.elevation = value;
+              sunLightPosRef.current = sunPositionFromAngles(
+                sunAnglesRef.current.azimuth,
+                value
+              );
+              saveSunAngles(sunAnglesRef.current.azimuth, value);
+              refitSunShadowRef.current?.();
+            }}
+            moonAzimuth={moonAzimuth}
+            moonElevation={moonElevation}
+            moonIntensity={moonIntensity}
+            onMoonAzimuthChange={(value) => {
+              setMoonAzimuth(value);
+              moonAnglesRef.current.azimuth = value;
+              moonLightPosRef.current = moonPositionFromAngles(
+                value,
+                moonAnglesRef.current.elevation
+              );
+              saveMoonAngles(value, moonAnglesRef.current.elevation);
+              applyDayNightRef.current?.(dayNightCurNightnessRef.current);
+              refitMoonShadowRef.current?.();
+            }}
+            onMoonElevationChange={(value) => {
+              setMoonElevation(value);
+              moonAnglesRef.current.elevation = value;
+              moonLightPosRef.current = moonPositionFromAngles(
+                moonAnglesRef.current.azimuth,
+                value
+              );
+              saveMoonAngles(moonAnglesRef.current.azimuth, value);
+              applyDayNightRef.current?.(dayNightCurNightnessRef.current);
+              refitMoonShadowRef.current?.();
+            }}
+            onMoonIntensityChange={(value) => {
+              setMoonIntensity(value);
+              moonIntensityRef.current = value;
+              saveMoonIntensity(value);
+              applyDayNightRef.current?.(dayNightCurNightnessRef.current);
+            }}
+            onClose={() => {
+              setSunTuneEnabled(false);
+              localStorage.setItem(SUN_TUNE_ENABLED_KEY, "false");
+            }}
+          />
+        )}
+        {hemiTuneEnabled && (
+          <HemisphereTunePanel
+            isDay={sunIsDay}
+            onDayNightChange={handleDayNightChange}
+            day={hemiDay}
+            night={hemiNight}
+            onDayChange={(next) => {
+              setHemiDay(next);
+              hemiDayRef.current = next;
+              saveHemiDay(next);
+              applyDayNightRef.current?.(dayNightCurNightnessRef.current);
+            }}
+            onNightChange={(next) => {
+              setHemiNight(next);
+              hemiNightRef.current = next;
+              saveHemiNight(next);
+              applyDayNightRef.current?.(dayNightCurNightnessRef.current);
+            }}
+            onResetDay={() => {
+              const next = { ...DEFAULT_HEMI_DAY };
+              setHemiDay(next);
+              hemiDayRef.current = next;
+              saveHemiDay(next);
+              applyDayNightRef.current?.(dayNightCurNightnessRef.current);
+            }}
+            onResetNight={() => {
+              const next = { ...DEFAULT_HEMI_NIGHT };
+              setHemiNight(next);
+              hemiNightRef.current = next;
+              saveHemiNight(next);
+              applyDayNightRef.current?.(dayNightCurNightnessRef.current);
+            }}
+            onClose={() => {
+              setHemiTuneEnabled(false);
+              localStorage.setItem(HEMI_TUNE_ENABLED_KEY, "false");
+            }}
+          />
+        )}
+        {walkBobTuneEnabled && (
+          <WalkBobTunePanel
+            tuning={walkBobTuning}
+            onChange={(key, value) => {
+              setWalkBobTuning((prev) => {
+                const next = normalizeWalkBobSimple({ ...prev, [key]: value });
+                saveWalkBobTuning(next);
+                walkBobTuningRef.current = next;
+                return next;
+              });
+            }}
+            onReset={() => {
+              const next = { ...DEFAULT_WALK_BOB_SIMPLE };
+              saveWalkBobTuning(next);
+              walkBobTuningRef.current = next;
+              setWalkBobTuning(next);
+            }}
+            onClose={() => {
+              setWalkBobTuneEnabled(false);
+              saveWalkBobTuneEnabled(false);
+            }}
+          />
+        )}
+        {arenaHasStairs && stairsTuneEnabled && (
+          <StairTunePanel
+            floorDeckY={floorDeckY}
+            catwalkDeckY={catwalkDeckY}
+            x={stairX}
+            y={stairY}
+            z={stairZ}
+            rotationY={stairRotationY}
+            onXChange={(value) => {
+              setStairX(value);
+              commitStairParams({
+                ...stairParamsRef.current,
+                position: { ...stairParamsRef.current.position, x: value },
+              });
+            }}
+            onYChange={(value) => {
+              setStairY(value);
+              commitStairParams({
+                ...stairParamsRef.current,
+                position: { ...stairParamsRef.current.position, y: value },
+              });
+            }}
+            onZChange={(value) => {
+              setStairZ(value);
+              commitStairParams({
+                ...stairParamsRef.current,
+                position: { ...stairParamsRef.current.position, z: value },
+              });
+            }}
+            onRotationChange={(value) => {
+              setStairRotationY(value);
+              commitStairParams({
+                ...stairParamsRef.current,
+                rotationY: value,
+              });
+            }}
+            onClose={() => {
+              setStairsTuneEnabled(false);
+              localStorage.setItem(STAIRS_TUNE_ENABLED_KEY, "false");
+            }}
+          />
+        )}
+      </div>
       {weaponTuneEnabled && (
         <WeaponTunePanel
           poseMode={weaponPoseMode}
@@ -991,10 +1528,31 @@ export default function FpsGame() {
               bodyLookDownAmount: value,
             };
           }}
+          onClose={() => {
+            setWeaponTuneEnabled(false);
+            weaponTuneEnabledRef.current = false;
+            saveWeaponTuneEnabled(false);
+            weaponPoseModeRef.current = "hip";
+            setWeaponPoseMode("hip");
+          }}
         />
       )}
-      <div ref={fpsRef} className="fpsCounter" aria-live="polite">
-        — FPS
+      <div className="topRightHud">
+        <button
+          type="button"
+          className={`dayNightToggle${sunIsDay ? " day" : " night"}`}
+          aria-pressed={!sunIsDay}
+          title={sunIsDay ? "Switch to night" : "Switch to day"}
+          onClick={() => handleDayNightChange(!sunIsDay)}
+        >
+          <span className="dayNightGlyph" aria-hidden="true">
+            {sunIsDay ? "☀" : "☾"}
+          </span>
+          <span className="dayNightLabel">{sunIsDay ? "Day" : "Night"}</span>
+        </button>
+        <div ref={fpsRef} className="fpsCounter" aria-live="polite">
+          — FPS
+        </div>
       </div>
       <div ref={crosshairRef} className="crosshair crosshairVisible" />
       <CompassOverlay dialRef={compassDialRef} />

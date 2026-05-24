@@ -14,11 +14,25 @@
     "cornerSegments": 4
   },
   "playerBoundsInset": 0.35,
-  "doorway": {
-    "wall": "north",
-    "centerX": 0,
-    "width": 1.1,
-    "height": 2.05
+  "doorways": [
+    {
+      "wall": "north",
+      "centerX": 0,
+      "width": 1.1,
+      "height": 2.05,
+      "top": "flat"
+    },
+    {
+      "wall": "north",
+      "centerX": 3.6,
+      "width": 1.1,
+      "height": 2.05,
+      "top": "arch"
+    }
+  ],
+  "stairs": {
+    "position": { "x": 1, "y": 0, "z": 8.5 },
+    "rotationY": -32
   },
   "rooms": [
     {

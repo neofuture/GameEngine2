@@ -130,11 +130,19 @@ body {
   color: #787888;
 }
 
-.fpsCounter {
+.topRightHud {
   position: fixed;
   top: 1rem;
   right: 1rem;
   z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  pointer-events: none;
+}
+
+.fpsCounter {
   pointer-events: none;
   padding: 0.4rem 0.65rem;
   border-radius: 8px;
@@ -145,6 +153,55 @@ body {
   font-variant-numeric: tabular-nums;
   font-family: inherit;
   backdrop-filter: blur(6px);
+}
+
+.dayNightToggle {
+  pointer-events: auto;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid #3a3a48;
+  background: rgba(18, 18, 24, 0.82);
+  color: #d8d8e4;
+  font-size: 0.8rem;
+  font-family: inherit;
+  backdrop-filter: blur(6px);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.dayNightToggle:hover {
+  background: rgba(28, 28, 38, 0.92);
+  border-color: #5a5a70;
+}
+
+.dayNightToggle:focus-visible {
+  outline: 2px solid #6ea8ff;
+  outline-offset: 2px;
+}
+
+.dayNightToggle.day {
+  color: #f5d57a;
+  border-color: #6a5a32;
+}
+
+.dayNightToggle.night {
+  color: #b8c8f0;
+  border-color: #3a4660;
+}
+
+.dayNightGlyph {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.dayNightLabel {
+  letter-spacing: 0.02em;
 }
 
 .settingRow,
@@ -292,6 +349,88 @@ body {
   font-size: 0.75rem;
   color: #9898a8;
   margin-top: 0.15rem;
+}
+
+.settingsSection {
+  border: 1px solid #3a3a48;
+  border-radius: 8px;
+  background: rgba(34, 34, 40, 0.45);
+  overflow: hidden;
+}
+
+.settingsSectionHeader,
+.settingsSubSectionToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: #e8e8ec;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settingsSectionHeader:hover,
+.settingsSubSectionToggle:hover {
+  background: rgba(46, 46, 56, 0.65);
+}
+
+.settingsSectionChevron {
+  color: #9898a8;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.settingsSectionBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 0.65rem 0.65rem;
+}
+
+.settingsSubSection {
+  border: 1px solid #3a3a48;
+  border-radius: 6px;
+  background: rgba(18, 18, 24, 0.55);
+  overflow: hidden;
+}
+
+.settingsSubSection + .settingsSubSection {
+  margin-top: 0.45rem;
+}
+
+.settingsSubSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.settingsSubSectionToggle {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.settingsSubAction {
+  margin-right: 0.45rem;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.7rem;
+}
+
+.settingsSubSectionBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0 0.55rem 0.55rem;
 }
 
 .rebindPrompt {
@@ -494,6 +633,162 @@ body {
   gap: 0.4rem;
 }
 
+.environmentTuneStack {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: stretch;
+  pointer-events: none;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
+.environmentTuneStack > * {
+  pointer-events: auto;
+}
+
+.sunTunePanel,
+.stairTunePanel,
+.walkBobTunePanel {
+  padding: 0.65rem;
+  border-radius: 10px;
+  background: rgba(18, 18, 24, 0.88);
+  border: 1px solid #3a3a48;
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sunTunePanel {
+  width: min(14.5rem, calc(100vw - 2rem));
+}
+
+.tunePanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.tunePanelHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.tunePanelHeaderBtn {
+  padding: 0.15rem 0.55rem;
+  font-size: 0.7rem;
+}
+
+.tunePanelClose {
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid #3a3a48;
+  background: #222228;
+  color: #c8c8d2;
+  font-size: 1rem;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.tunePanelClose:hover {
+  background: #2e2e38;
+  color: #ffffff;
+  border-color: #4a4a58;
+}
+
+.stairTunePanel,
+.walkBobTunePanel {
+  width: min(17.5rem, calc(100vw - 2rem));
+}
+
+.walkBobSectionTitle {
+  margin: 0.35rem 0 0.1rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9898a8;
+}
+
+.walkBobTunePanel section:first-of-type .walkBobSectionTitle {
+  margin-top: 0;
+}
+
+.stairTunePanel .poseControl,
+.walkBobTunePanel .poseControl {
+  padding: 0.35rem 0.45rem;
+}
+
+.stairTuneTitle {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e8e8ec;
+}
+
+.stairTuneHint {
+  margin: 0;
+  font-size: 0.68rem;
+  color: #787888;
+  line-height: 1.35;
+}
+
+.sunTuneTitle {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e8e8ec;
+}
+
+.sunTuneHint {
+  margin: 0;
+  font-size: 0.68rem;
+  color: #787888;
+  line-height: 1.35;
+}
+
+.sunTunePanel .sliderRow {
+  padding: 0.35rem 0.45rem;
+}
+
+.sunDayNightTabs {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.sunDayNightTab {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #3a3a48;
+  background: #222228;
+  color: #9898a8;
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.sunDayNightTab.active {
+  background: #2a3238;
+  border-color: #6a8ab0;
+  color: #e8e8ec;
+}
+
+.sunDayNightTab:hover {
+  background: #2e2e38;
+}
+
 .weaponTuneTitle {
   font-size: 0.85rem;
   font-weight: 600;
@@ -574,6 +869,16 @@ body {
   grid-template-columns: 1.75rem 1fr 1.75rem;
   gap: 0.25rem;
   align-items: center;
+}
+
+.poseNudgeRowWithExtra {
+  grid-template-columns: 1.75rem 1fr 1.75rem auto;
+}
+
+.stairDeckSnapBtn {
+  font-size: 0.62rem;
+  padding: 0.25rem 0.4rem;
+  white-space: nowrap;
 }
 
 .poseNudgeBtn {

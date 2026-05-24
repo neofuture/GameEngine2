@@ -1,16 +1,16 @@
 {
   "asset_type": "sky_dome",
-  "name": "Day Sky Dome",
-  "version": "2.1",
+  "name": "Bright Day Sky Dome",
+  "version": "2.0",
   "format": "equirectangular",
   "resolution": {
-    "width": 1024,
-    "height": 512
+    "width": 8192,
+    "height": 4096
   },
   "files": {
-    "primary_png": "sky_dome_equirectangular.jpg",
-    "primary_jpg": "sky_dome_equirectangular.jpg",
-    "preview": "sky_dome_equirectangular.jpg",
+    "primary_png": "sky_dome_equirectangular_8k.png",
+    "primary_jpg": "sky_dome_equirectangular_8k.jpg",
+    "preview": "sky_dome_preview_2048.jpg",
     "sample_mesh_obj": "sky_dome_hemisphere_inward.obj",
     "sample_mesh_mtl": "sky_dome_hemisphere_inward.mtl"
   },
@@ -60,8 +60,8 @@
   },
   "visual_description": {
     "time_of_day": "daylight",
-    "cloud_style": "cumulus and wispy cirrus with horizon haze",
-    "sky_color": "deep blue zenith fading to pale horizon"
+    "cloud_style": "soft fluffy cumulus with wispy cirrus",
+    "sky_color": "deep blue overhead fading to pale horizon haze"
   },
   "authoring_note": "Texture generated and packaged for skydome use. Best for background skies in 3D engines."
 }

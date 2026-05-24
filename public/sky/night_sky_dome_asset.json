@@ -1,0 +1,55 @@
+{
+  "asset_type": "sky_dome",
+  "name": "Night Sky Dome with Stars",
+  "version": "1.0",
+  "format": "equirectangular",
+  "resolution": {
+    "width": 8192,
+    "height": 4096
+  },
+  "files": {
+    "primary_jpg": "night_sky_dome_equirectangular_8k_seamless.jpg",
+    "preview": "night_sky_dome_preview_2048.jpg",
+    "sample_mesh_obj": "sky_dome_hemisphere_inward.obj",
+    "sample_mesh_mtl": "sky_dome_hemisphere_inward.mtl"
+  },
+  "implementation": {
+    "mapping": "Use as a lat-long equirectangular skydome texture on the inside of a sphere or hemisphere.",
+    "recommended_geometry": "Sphere or hemisphere with inward-facing normals.",
+    "material_settings": {
+      "unlit": true,
+      "double_sided": true,
+      "cast_shadows": false,
+      "receive_shadows": false,
+      "depth_write": false,
+      "sRGBTexture": true
+    },
+    "wrap": {
+      "horizontal": "repeat",
+      "vertical": "clamp",
+      "left_right_edges_match": true,
+      "seam_fix_blend_width_px": 256,
+      "left_right_edge_abs_diff_max": 0
+    },
+    "orientation": {
+      "up_axis": "Y",
+      "zenith": "top center of texture",
+      "uv_seam": "left/right edge",
+      "horizon_bias": 0.88
+    }
+  },
+  "visual_description": {
+    "time_of_day": "night",
+    "features": [
+      "dense stars",
+      "subtle milky way haze",
+      "dark blue sky",
+      "faint horizon glow"
+    ]
+  },
+  "qa": {
+    "seam_fixed": true,
+    "verification": "Left and right edge columns were numerically matched after seam blending.",
+    "left_right_edge_abs_diff_max": 0
+  }
+}

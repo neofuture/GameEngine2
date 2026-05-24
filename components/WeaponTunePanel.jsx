@@ -118,6 +118,7 @@ export default function WeaponTunePanel({
   onBodyLookUpAmountChange,
   bodyLookDownAmount,
   onBodyLookDownAmountChange,
+  onClose,
 }) {
   const releasePointer = () => onReleasePointer?.();
 
@@ -163,7 +164,19 @@ export default function WeaponTunePanel({
       }}
       onClick={(e) => e.stopPropagation()}
     >
-      <p className="weaponTuneTitle">Weapon tune</p>
+      <div className="tunePanelHeader">
+        <p className="weaponTuneTitle">Weapon tune</p>
+        {onClose && (
+          <button
+            type="button"
+            className="tunePanelClose"
+            aria-label="Close weapon tuning"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        )}
+      </div>
       <div className="weaponTuneTabs">
         <button
           type="button"
