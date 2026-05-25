@@ -34,6 +34,9 @@
     "position": { "x": 1, "y": 0, "z": 8.5 },
     "rotationY": -32
   },
+  "floorHoles": [
+    { "x": -8, "z": 2, "radius": 1.4 }
+  ],
   "rooms": [
     {
       "id": "service_room",

@@ -33,6 +33,7 @@ import {
   WORLD_LAYER,
 } from "@/lib/LightingLayers";
 import { isPointInsideAnyRoom } from "@/lib/RoomPlacement";
+import { buildRoomCullables, updateRoomCulling } from "@/lib/RoomCulling";
 import {
   initCandleFlicker,
   updateCandleFlicker,
@@ -110,7 +111,6 @@ import {
   saveWalkBobTuning,
 } from "@/lib/WalkBobTuning";
 import ControlsPanel from "@/components/ControlsPanel";
-import CompassOverlay from "@/components/CompassOverlay";
 import {
   isBindingDown,
   loadBindings,
@@ -129,21 +129,90 @@ const HEMI_TUNE_ENABLED_KEY = "fps-hemi-tune-enabled";
 const STAIRS_TUNE_ENABLED_KEY = "fps-stairs-tune-enabled";
 const LEGACY_LOOK_SPEED_KEY = "fps-look-speed";
 const LEGACY_LOOK_EASE_KEY = "fps-look-ease";
+const RENDER_SCALE_KEY = "fps-render-scale";
+const SHOW_FPS_KEY = "fps-show-counter";
 const DEFAULT_LOOK = 7;
 const DEFAULT_MAX_LOOK_RATE = 2.5;
+/** Multiplier on `min(devicePixelRatio, 2)` — 1.0 = full quality, 0.5 = quarter pixel count. */
+const DEFAULT_RENDER_SCALE = 1.0;
+const MIN_RENDER_SCALE = 0.5;
+const MAX_RENDER_SCALE = 1.0;
+
+function loadRenderScale() {
+  if (typeof window === "undefined") return DEFAULT_RENDER_SCALE;
+  const raw = window.localStorage.getItem(RENDER_SCALE_KEY);
+  if (!raw) return DEFAULT_RENDER_SCALE;
+  const v = parseFloat(raw);
+  if (!Number.isFinite(v)) return DEFAULT_RENDER_SCALE;
+  return Math.min(MAX_RENDER_SCALE, Math.max(MIN_RENDER_SCALE, v));
+}
+
+function effectivePixelRatio(scale) {
+  if (typeof window === "undefined") return 1;
+  return Math.min(window.devicePixelRatio || 1, 2) * scale;
+}
+/** Persisted dev-only "Show FPS counter" toggle. Default off so a normal
+ *  player never sees the dev HUD. */
+function loadShowFps() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(SHOW_FPS_KEY) === "true";
+}
 /** Seconds for the day/night toggle to crossfade from one state to the other. */
 const DAY_NIGHT_FADE_DURATION = 10;
+/** Meters below `floorY` at which a falling player is considered dead and
+ *  respawned. Generous enough that any normal walking surface inaccuracy
+ *  can't trigger it — only a real fall through a hole reaches this depth. */
+const DEATH_FALL_DROP = 12;
+/** Time the death overlay stays fully opaque while the player is "dead"
+ *  (frozen — no input, no physics, no respawn yet). At the end of this
+ *  window the player is respawned and `DEATH_FADE_MS` begins. */
+const DEATH_FREEZE_MS = 1500;
+/** Time the overlay takes to fade out AFTER the player has respawned.
+ *  The player can move/shoot/look around during this window — the fade
+ *  is purely a visual transition off the death screen. */
+const DEATH_FADE_MS = 1200;
 const MAGAZINE_SIZE = 80;
 const SPARE_MAGAZINES = 4;
 const BURST_SHOT_COUNT = 3;
 const BURST_INTERVAL = 0.085;
 const AUTO_FIRE_INTERVAL = 0.1;
 const FIRE_MODE_ORDER = ["single", "burst", "auto"];
-const FIRE_MODE_LABELS = {
-  single: "Single",
-  burst: "Burst",
-  auto: "Auto",
-};
+
+/**
+ * Show the full-screen death overlay with the given reason text. The overlay
+ * is permanently mounted; we just update the reason copy and toggle classes
+ * that drive the two-phase sequence (opaque hold → post-respawn fade). The
+ * reflow trick (remove → reflow → re-add) lets back-to-back deaths replay
+ * the animation instead of being deduped by the browser.
+ */
+function showDeathOverlay(overlayEl, reasonEl, reason) {
+  if (reasonEl) reasonEl.textContent = reason ?? "";
+  if (!overlayEl) return;
+  overlayEl.classList.remove("deathOverlayFading");
+  overlayEl.classList.remove("deathOverlayActive");
+  // eslint-disable-next-line no-unused-expressions
+  void overlayEl.offsetWidth;
+  overlayEl.classList.add("deathOverlayActive");
+}
+
+/**
+ * Switch the overlay from the opaque "hold" state to the fade-out state.
+ * Called the moment the player respawns so the fade happens AFTER the world
+ * has been restored behind the overlay.
+ */
+function beginDeathOverlayFade(overlayEl) {
+  if (!overlayEl) return;
+  overlayEl.classList.remove("deathOverlayActive");
+  // eslint-disable-next-line no-unused-expressions
+  void overlayEl.offsetWidth;
+  overlayEl.classList.add("deathOverlayFading");
+}
+
+function hideDeathOverlay(overlayEl) {
+  if (!overlayEl) return;
+  overlayEl.classList.remove("deathOverlayActive");
+  overlayEl.classList.remove("deathOverlayFading");
+}
 
 function safeRequestPointerLock(canvas) {
   if (document.pointerLockElement === canvas) return;
@@ -164,7 +233,17 @@ export default function FpsGame() {
   const crosshairRef = useRef(null);
   const fpsRef = useRef(null);
   const compassDialRef = useRef(null);
+  const compassBearingRef = useRef(null);
+  const deathOverlayRef = useRef(null);
+  const deathReasonRef = useRef(null);
+  /** Non-null while a death sequence is playing. `endTime` is the
+   *  `performance.now()` ms after which the player respawns and the
+   *  overlay disappears. Input/physics/weapon are gated on this. */
+  const deathStateRef = useRef(null);
   const [invertYLook, setInvertYLook] = useState(false);
+  const [renderScale, setRenderScale] = useState(DEFAULT_RENDER_SCALE);
+  const renderScaleRef = useRef(DEFAULT_RENDER_SCALE);
+  const rendererRef = useRef(null);
   const [keyboardLook, setKeyboardLook] = useState(DEFAULT_LOOK);
   const [keyboardEase, setKeyboardEase] = useState(DEFAULT_LOOK);
   const [mouseLook, setMouseLook] = useState(DEFAULT_LOOK);
@@ -194,6 +273,31 @@ export default function FpsGame() {
   const [pointerLocked, setPointerLocked] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
+  const [showFps, setShowFps] = useState(false);
+  const [hudTuneEnabled, setHudTuneEnabled] = useState(false);
+  const [hudCogX, setHudCogX] = useState(4);
+  const [hudCogY, setHudCogY] = useState(32);
+  const [hudCogSize, setHudCogSize] = useState(8);
+  const [hudRoundsX, setHudRoundsX] = useState(33);
+  const [hudRoundsY, setHudRoundsY] = useState(14);
+  const [hudMagX, setHudMagX] = useState(50);
+  const [hudMagY, setHudMagY] = useState(14);
+  const [hudMagsX, setHudMagsX] = useState(67);
+  const [hudMagsY, setHudMagsY] = useState(14);
+  const [hudValueFont, setHudValueFont] = useState(4.4);
+  const [hudLabelY, setHudLabelY] = useState(8);
+  const [hudFireModeY, setHudFireModeY] = useState(14.5);
+  const [hudCompassX, setHudCompassX] = useState(92);
+  const [hudCompassY, setHudCompassY] = useState(21);
+  const [hudCompassSize, setHudCompassSize] = useState(6.3);
+  const [hbLivesX, setHbLivesX] = useState(4.5);
+  const [hbLivesY, setHbLivesY] = useState(11.5);
+  const [hbLivesSize, setHbLivesSize] = useState(1.6);
+  const [hbBarX, setHbBarX] = useState(18.5);
+  const [hbBarY, setHbBarY] = useState(34);
+  const [hbBarW, setHbBarW] = useState(76);
+  const [hbBarH, setHbBarH] = useState(33.5);
+  const [hbCorner, setHbCorner] = useState(3);
   const [weaponTuneEnabled, setWeaponTuneEnabled] = useState(false);
   const [bindings, setBindings] = useState(() => loadBindings());
   const [rebindAction, setRebindAction] = useState(null);
@@ -249,6 +353,10 @@ export default function FpsGame() {
   const [fireMode, setFireMode] = useState("single");
   const [roundsInMag, setRoundsInMag] = useState(MAGAZINE_SIZE);
   const [spareMags, setSpareMags] = useState(SPARE_MAGAZINES);
+  const [playerHealth, setPlayerHealth] = useState(100);
+  const [playerLives, setPlayerLives] = useState(3);
+  const playerHealthRef = useRef(100);
+  const playerLivesRef = useRef(3);
   const fireModeRef = useRef("single");
   const roundsInMagRef = useRef(MAGAZINE_SIZE);
   const spareMagsRef = useRef(SPARE_MAGAZINES);
@@ -342,6 +450,10 @@ export default function FpsGame() {
     const stairsEnabled = localStorage.getItem(STAIRS_TUNE_ENABLED_KEY) === "true";
     const walkBobEnabled = loadWalkBobTuneEnabled();
     setInvertYLook(storedInvert);
+    const storedScale = loadRenderScale();
+    setRenderScale(storedScale);
+    renderScaleRef.current = storedScale;
+    setShowFps(loadShowFps());
     setWeaponTuneEnabled(tuneEnabled);
     setSunTuneEnabled(sunEnabled);
     setHemiTuneEnabled(hemiEnabled);
@@ -361,6 +473,7 @@ export default function FpsGame() {
   }, []);
 
   invertYRef.current = invertYLook;
+  renderScaleRef.current = renderScale;
   keyboardLookRef.current = keyboardLook;
   keyboardEaseRef.current = keyboardEase;
   mouseLookRef.current = mouseLook;
@@ -410,10 +523,11 @@ export default function FpsGame() {
       // Log depth breaks directional shadow maps in many Three.js builds.
       logarithmicDepthBuffer: false,
     });
+    rendererRef.current = renderer;
 
     async function init() {
       const isActive = () => !disposed;
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(effectivePixelRatio(renderScaleRef.current));
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -485,6 +599,18 @@ export default function FpsGame() {
       assignWorldLayers(level.group);
       disableInteriorCastShadows(level.group);
       setHealthBarOccluders(level.group);
+      // Per-room culling: hide interior shells and disable their lights
+      // when the room isn't visible to the camera (and the player isn't
+      // standing in it). Skips the room render pass entirely on frames
+      // where no room is in view.
+      const roomCullables = buildRoomCullables(
+        level.group,
+        arena.rooms ?? [],
+        roomLights,
+        arenaHalf,
+        attachWall,
+        arena.wallHeight
+      );
       applySunLightPosition(sun, sunLightPosRef.current);
       applyMoonLightPosition(moon, moonLightPosRef.current);
       sunRef.current = sun;
@@ -620,6 +746,7 @@ export default function FpsGame() {
           ...level.ceilingColliders,
         ],
         getGroundSurfaces: () => level.groundSurfaces,
+        getFloorHoles: () => level.floorHoles ?? [],
         getBindings: () => bindingsRef.current,
         getInvertYLook: () => invertYRef.current,
         getKeyboardLookSpeed: () => keyboardLookRef.current,
@@ -832,15 +959,99 @@ export default function FpsGame() {
         const aimTabActive =
           weaponTuneEnabledRef.current && weaponPoseModeRef.current === "ads";
         const aimTarget = aimHeld || aimTabActive ? 1 : 0;
+
+        // Death sequence (two phases):
+        //   1. FREEZE  — overlay is fully opaque, player is not respawned,
+        //                input/physics/weapons are disabled. Lasts
+        //                `DEATH_FREEZE_MS`.
+        //   2. FADE    — player has just been respawned; the overlay fades
+        //                out over `DEATH_FADE_MS` while the player can
+        //                already move and shoot.
+        // `frozen` is the only thing that gates input/physics; the fade
+        // phase deliberately does NOT block gameplay.
+        const deathState = deathStateRef.current;
+        let frozen = false;
+        if (deathState) {
+          if (!deathState.respawned && now >= deathState.respawnTime) {
+            player.respawn();
+            deathState.respawned = true;
+            playerHealthRef.current = 100;
+            setPlayerHealth(100);
+            beginDeathOverlayFade(deathOverlayRef.current);
+          }
+          if (deathState.respawned && now >= deathState.fadeEndTime) {
+            hideDeathOverlay(deathOverlayRef.current);
+            deathStateRef.current = null;
+          } else {
+            frozen = !deathState.respawned;
+          }
+        }
+
         const canUseWeapons =
+          !frozen &&
           !rebindActionRef.current &&
           !settingsOpenRef.current &&
           !controlsOpenRef.current;
 
-        player.update(input, dt);
+        if (!frozen) {
+          player.update(input, dt);
+          // Death-fall: dropped through a floor hole. Only trigger a new
+          // death sequence when one isn't already in progress (otherwise
+          // the fade-phase player could re-trigger themselves before they
+          // climb out of the hole). The respawn is held until the freeze
+          // phase ends — the player can't be "in the world" while frozen.
+          if (
+            !deathStateRef.current &&
+            player.getY() < level.floorY - DEATH_FALL_DROP
+          ) {
+            const reason = "You fell to your death";
+            playerLivesRef.current = Math.max(0, playerLivesRef.current - 1);
+            setPlayerLives(playerLivesRef.current);
+            playerHealthRef.current = 0;
+            setPlayerHealth(0);
+            deathStateRef.current = {
+              reason,
+              respawned: false,
+              respawnTime: now + DEATH_FREEZE_MS,
+              fadeEndTime: now + DEATH_FREEZE_MS + DEATH_FADE_MS,
+            };
+            showDeathOverlay(
+              deathOverlayRef.current,
+              deathReasonRef.current,
+              reason
+            );
+            frozen = true;
+          }
+          if (
+            !deathStateRef.current &&
+            playerHealthRef.current <= 0
+          ) {
+            const reason = "You were killed by an enemy";
+            playerLivesRef.current = Math.max(0, playerLivesRef.current - 1);
+            setPlayerLives(playerLivesRef.current);
+            playerHealthRef.current = 0;
+            setPlayerHealth(0);
+            deathStateRef.current = {
+              reason,
+              respawned: false,
+              respawnTime: now + DEATH_FREEZE_MS,
+              fadeEndTime: now + DEATH_FREEZE_MS + DEATH_FADE_MS,
+            };
+            showDeathOverlay(
+              deathOverlayRef.current,
+              deathReasonRef.current,
+              reason
+            );
+            frozen = true;
+          }
+        }
         if (compassDialRef.current) {
           const yawDeg = (player.getYaw() * 180) / Math.PI;
           compassDialRef.current.style.transform = `rotate(${-yawDeg}deg)`;
+          if (compassBearingRef.current) {
+            const bearing = (((-yawDeg % 360) + 360) % 360) | 0;
+            compassBearingRef.current.textContent = `${bearing}°`;
+          }
         }
         camera.updateMatrixWorld(true);
 
@@ -861,12 +1072,14 @@ export default function FpsGame() {
           dayNightToggleRef.current?.(!sunIsDayRef.current);
         }
 
-        weapon?.update(camera, aimTarget, dt, weaponTuningRef, {
-          snapAim: !locked,
-          moveSpeed: player.getHorizontalSpeed(),
-          onStairs: player.isOnStairs(),
-          walkBobTuning: resolveWalkBobTuning(walkBobTuningRef.current),
-        });
+        if (!frozen) {
+          weapon?.update(camera, aimTarget, dt, weaponTuningRef, {
+            snapAim: !locked,
+            moveSpeed: player.getHorizontalSpeed(),
+            onStairs: player.isOnStairs(),
+            walkBobTuning: resolveWalkBobTuning(walkBobTuningRef.current),
+          });
+        }
 
         const aimBlend = weapon?.getAimBlend() ?? 0;
         const targetFov = THREE.MathUtils.lerp(HIP_FOV, ADS_FOV, aimBlend);
@@ -924,8 +1137,19 @@ export default function FpsGame() {
 
         sky?.update(camera);
         resetCameraRenderLayers(camera);
+        // Per-room frustum culling — hide rooms (and their lights) that the
+        // camera can't currently see, and tell the renderer to skip the
+        // interior pass on frames where no room is in view.
+        const visibleRoomCount = updateRoomCulling(
+          roomCullables,
+          camera,
+          camera.position,
+          arenaHalf,
+          attachWall
+        );
         renderSceneWithLayeredLighting(renderer, scene, camera, {
           skyRoot: sky?.mesh ?? null,
+          skipRoomPass: visibleRoomCount === 0,
         });
         if (level?.targets) {
           renderTargetHealthBarsPass(renderer, scene, camera, level.targets);
@@ -966,6 +1190,7 @@ export default function FpsGame() {
         const h = window.innerHeight;
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
+        renderer.setPixelRatio(effectivePixelRatio(renderScaleRef.current));
         renderer.setSize(w, h);
       };
 
@@ -1054,6 +1279,7 @@ export default function FpsGame() {
       resetViewmodelInteriorAmbient();
       resetRoomInteriorAmbient();
       renderer.dispose();
+      rendererRef.current = null;
       safeExitPointerLock();
     };
   }, []);
@@ -1077,63 +1303,194 @@ export default function FpsGame() {
     <div className="gameRoot">
       <canvas ref={canvasRef} className="gameCanvas" />
       <div
-        className="gameHud"
+        className="hudBottomBar"
+        role="region"
+        aria-label="Loadout HUD"
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
+        style={{
+          "--hud-cog-x": `${hudCogX}%`,
+          "--hud-cog-y": `${hudCogY}%`,
+          "--hud-cog-size": `${hudCogSize}%`,
+          "--hud-rounds-x": `${hudRoundsX}%`,
+          "--hud-rounds-y": `${hudRoundsY}%`,
+          "--hud-mag-x": `${hudMagX}%`,
+          "--hud-mag-y": `${hudMagY}%`,
+          "--hud-mags-x": `${hudMagsX}%`,
+          "--hud-mags-y": `${hudMagsY}%`,
+          "--hud-value-font": `${hudValueFont}vw`,
+          "--hud-label-y": `${hudLabelY}px`,
+          "--hud-firemode-y": `${hudFireModeY}%`,
+          "--hud-compass-x": `${hudCompassX}%`,
+          "--hud-compass-y": `${hudCompassY}%`,
+          "--hud-compass-size": `${hudCompassSize}vw`,
+        }}
       >
+        {/* Settings button — sits in the top-left decorative tab */}
         <button
           type="button"
-          className="settingsBtn"
+          className="hudGearBtn"
+          aria-label="Open settings"
+          title="Settings"
           onClick={() => {
             safeExitPointerLock();
             setSettingsOpen(true);
           }}
         >
-          Settings
+          <img src="/ui/settings.png" alt="" className="hudGearImg" />
         </button>
-        <button
-          type="button"
-          className="settingsBtn"
-          onClick={() => {
-            safeExitPointerLock();
-            setControlsOpen(true);
-          }}
-        >
-          Controls
-        </button>
-        <div className="hudPanel" role="group" aria-label="Fire mode">
-          <span className="hudPanelLabel">Fire mode</span>
-          <div className="fireModeToggle">
-            {FIRE_MODE_ORDER.map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                className={`fireModeBtn${fireMode === mode ? " active" : ""}`}
-                aria-pressed={fireMode === mode}
-                onClick={() => {
-                  fireModeRef.current = mode;
-                  setFireMode(mode);
-                }}
-              >
-                {FIRE_MODE_LABELS[mode]}
-              </button>
-            ))}
-          </div>
+
+        {/* Left section — ROUNDS */}
+        <div className={`hudAmmoStat hudAmmoStatLeft${roundsInMag < 15 ? " hudAmmoLow" : ""}`}>
+          <span className="hudAmmoLabel">ROUNDS</span>
+          <span className="hudAmmoValue">{String(roundsInMag).padStart(2, "0")}</span>
         </div>
-        <div className="hudPanel hudAmmo" aria-label="Ammunition">
-          <div className="hudAmmoPrimary">
-            <span className="hudAmmoCount">{roundsInMag}</span>
-            <span className="hudAmmoCap">/ {MAGAZINE_SIZE}</span>
-          </div>
-          <div className="hudAmmoMags">
-            <span className="hudAmmoMagsLabel">Mags</span>
-            <span className="hudAmmoMagsCount">{spareMags + 1}</span>
-            <span className="hudAmmoMagsHint">
-              ({spareMags} spare{spareMags === 1 ? "" : "s"})
-            </span>
+
+        {/* Centre section — MAG */}
+        <div className="hudAmmoStat hudAmmoStatCenter">
+          <span className="hudAmmoLabel">MAG</span>
+          <span className="hudAmmoValue">{String(MAGAZINE_SIZE).padStart(2, "0")}</span>
+        </div>
+
+        {/* Right section — MAGS */}
+        <div className="hudAmmoStat hudAmmoStatRight">
+          <span className="hudAmmoLabel">MAGS</span>
+          <span className="hudAmmoValue">{String(spareMags).padStart(2, "0")}</span>
+        </div>
+
+        {/* Fire mode indicator — single | burst | auto */}
+        <div className="hudFireMode">
+          <button
+            type="button"
+            className={`hudFireModeOption${fireMode === "single" ? " hudFireModeActive" : ""}`}
+            onClick={() => { fireModeRef.current = "single"; setFireMode("single"); }}
+          >
+            <img src={fireMode === "single" ? "/ui/bullet_selected.png" : "/ui/bullet.png"} className="hudBulletIcon" alt="" />
+          </button>
+          <button
+            type="button"
+            className={`hudFireModeOption${fireMode === "burst" ? " hudFireModeActive" : ""}`}
+            onClick={() => { fireModeRef.current = "burst"; setFireMode("burst"); }}
+          >
+            <img src={fireMode === "burst" ? "/ui/bullet_selected.png" : "/ui/bullet.png"} className="hudBulletIcon" alt="" />
+            <img src={fireMode === "burst" ? "/ui/bullet_selected.png" : "/ui/bullet.png"} className="hudBulletIcon" alt="" />
+            <img src={fireMode === "burst" ? "/ui/bullet_selected.png" : "/ui/bullet.png"} className="hudBulletIcon" alt="" />
+          </button>
+          <button
+            type="button"
+            className={`hudFireModeOption${fireMode === "auto" ? " hudFireModeActive" : ""}`}
+            onClick={() => { fireModeRef.current = "auto"; setFireMode("auto"); }}
+          >
+            <img src={fireMode === "auto" ? "/ui/bullet_selected.png" : "/ui/bullet.png"} className="hudBulletIcon" alt="" />
+            <span className="hudFireModeLabel">A</span>
+          </button>
+        </div>
+
+        {/* Compass — mirrors the cog on the right side */}
+        <div className="hudCompass">
+          <div className="hudCompassRing">
+            <div ref={compassDialRef} className="hudCompassDial">
+              <span className="hudCompassMark hudCompassN">N</span>
+              <span className="hudCompassMark hudCompassE">E</span>
+              <span className="hudCompassMark hudCompassS">S</span>
+              <span className="hudCompassMark hudCompassW">W</span>
+            </div>
+            <div className="hudCompassPointer" />
+            <span ref={compassBearingRef} className="hudCompassBearing">0°</span>
           </div>
         </div>
       </div>
+
+      {/* Demo damage button — temporary */}
+      <div className="demoBtnGroup">
+        <button
+          type="button"
+          className="demoDamageBtn"
+          onClick={() => {
+            const next = Math.max(0, playerHealthRef.current - 10);
+            playerHealthRef.current = next;
+            setPlayerHealth(next);
+          }}
+        >
+          −10 HP
+        </button>
+        <button
+          type="button"
+          className="demoHealBtn"
+          onClick={() => {
+            const next = playerHealthRef.current + 10;
+            playerHealthRef.current = next;
+            setPlayerHealth(next);
+          }}
+        >
+          +10 HP
+        </button>
+      </div>
+
+      {/* Health bar — top right */}
+      <div
+        className="hudHealthBar"
+        role="status"
+        aria-label="Player health"
+        style={{
+          "--hb-lives-x": `${hbLivesX}%`,
+          "--hb-lives-y": `${hbLivesY}%`,
+          "--hb-lives-size": `${hbLivesSize}vw`,
+          "--hb-bar-x": `${hbBarX}%`,
+          "--hb-bar-y": `${hbBarY}%`,
+          "--hb-bar-w": `${hbBarW}%`,
+          "--hb-bar-h": `${hbBarH}%`,
+          "--hb-corner": `${hbCorner}px`,
+        }}
+      >
+        <div className="hudHealthLives">
+          <span className="hudHealthLivesValue">{String(playerLives).padStart(2, "0")}</span>
+        </div>
+        <div
+          className={`hudHealthTrack${playerHealth <= 25 ? " hudHealthCritical" : ""}${playerHealth > 100 ? " hudHealthRadioactive" : ""}${playerHealth > 150 ? " hudHealthOverload" : ""}`}
+          style={playerHealth > 100 ? {
+            "--radioactive-speed": `${Math.max(0.2, 0.8 - (playerHealth - 100) * 0.004)}s`,
+            "--shake-speed": playerHealth > 150 ? `${Math.max(0.15, 0.6 - (Math.min(playerHealth, 190) - 150) * 0.01125)}s` : undefined,
+          } : undefined}
+        >
+          <div
+            className="hudHealthFill"
+            style={(() => {
+              const hp = Math.min(playerHealth, 100);
+              const pct = hp / 100;
+              let orangeOp = 0, redOp = 0;
+              if (hp <= 50) {
+                orangeOp = 1;
+              }
+              if (hp <= 25) {
+                redOp = 1;
+              }
+              return {
+                width: `${hp}%`,
+                "--health-pct": pct,
+                "--orange-op": orangeOp,
+                "--red-op": redOp,
+              };
+            })()}
+          >
+            <div className="hudHealthLayer hudHealthBlue" />
+            <div className="hudHealthLayer hudHealthOrange" style={{ opacity: `var(--orange-op)` }} />
+            <div className="hudHealthLayer hudHealthRed" style={{ opacity: `var(--red-op)` }} />
+            <div
+              className="hudHealthLayer hudHealthFillRadioactive"
+              style={{ opacity: playerHealth > 100 ? 1 : 0 }}
+            />
+          </div>
+          <span className="hudHealthText hudHealthTextWhite">{playerHealth} HP</span>
+          <span className="hudHealthText hudHealthTextBlack" style={{ width: `${Math.min(playerHealth, 100)}%` }}>{playerHealth} HP</span>
+        </div>
+      </div>
+
+      {/* Red vignette when low health */}
+      <div
+        className="hudDamageVignette"
+        style={{ opacity: playerHealth <= 25 ? 0.5 + 0.5 * ((25 - playerHealth) / 25) : 0 }}
+      />
 
       {settingsOpen && (
         <div
@@ -1157,7 +1514,52 @@ export default function FpsGame() {
                 Close
               </button>
             </div>
-            <SettingsSection title="General" defaultOpen>
+            <SettingsSection title="Controls" defaultOpen>
+              <p className="settingsHint" style={{ marginTop: 0 }}>
+                Configure keyboard and mouse bindings.
+              </p>
+              <button
+                type="button"
+                className="settingsBtn settingsInlineBtn"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setControlsOpen(true);
+                }}
+              >
+                Open key bindings…
+              </button>
+            </SettingsSection>
+
+            <SettingsSection title="Time of Day">
+              <div
+                className="settingRow settingRowButtons"
+                role="group"
+                aria-label="Time of day"
+              >
+                <button
+                  type="button"
+                  className={`settingsBtn settingsToggleBtn${sunIsDay ? " active" : ""}`}
+                  aria-pressed={sunIsDay}
+                  onClick={() => handleDayNightChange(true)}
+                >
+                  ☀ Day
+                </button>
+                <button
+                  type="button"
+                  className={`settingsBtn settingsToggleBtn${!sunIsDay ? " active" : ""}`}
+                  aria-pressed={!sunIsDay}
+                  onClick={() => handleDayNightChange(false)}
+                >
+                  ☾ Night
+                </button>
+              </div>
+              <p className="settingsHint">
+                Crossfades the sun and moon over {DAY_NIGHT_FADE_DURATION}{" "}
+                seconds. You can also press the bound Day/Night key.
+              </p>
+            </SettingsSection>
+
+            <SettingsSection title="General">
               <label className="settingRow">
                 <input
                   type="checkbox"
@@ -1171,6 +1573,35 @@ export default function FpsGame() {
                 />
                 Invert look (mouse & arrows)
               </label>
+              <label className="sliderRow">
+                <span className="sliderLabel">
+                  Render scale{" "}
+                  <output>{Math.round(renderScale * 100)}%</output>
+                </span>
+                <input
+                  type="range"
+                  min={MIN_RENDER_SCALE}
+                  max={MAX_RENDER_SCALE}
+                  step="0.05"
+                  value={renderScale}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value);
+                    setRenderScale(value);
+                    renderScaleRef.current = value;
+                    localStorage.setItem(RENDER_SCALE_KEY, String(value));
+                    const r = rendererRef.current;
+                    if (r) {
+                      r.setPixelRatio(effectivePixelRatio(value));
+                      r.setSize(window.innerWidth, window.innerHeight);
+                    }
+                  }}
+                />
+              </label>
+              <p className="settingsHint">
+                Lowers internal rendering resolution. The single biggest
+                framerate knob — fragment shader cost scales with pixel
+                count. 100% = native; 50% = a quarter of the pixels.
+              </p>
             </SettingsSection>
 
             <SettingsSection title="Weapon">
@@ -1336,6 +1767,33 @@ export default function FpsGame() {
               <p className="settingsHint">
                 Each toggle opens a floating tuning panel in the game UI. Use
                 the × on the panel to close it (the toggle stays remembered).
+              </p>
+            </SettingsSection>
+
+            <SettingsSection title="Development">
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={showFps}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setShowFps(checked);
+                    localStorage.setItem(SHOW_FPS_KEY, String(checked));
+                  }}
+                />
+                Show FPS counter
+              </label>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={hudTuneEnabled}
+                  onChange={(e) => setHudTuneEnabled(e.target.checked)}
+                />
+                HUD position tuning
+              </label>
+              <p className="settingsHint">
+                Opens a floating panel with X/Y sliders for each HUD element
+                so you can align them over the artwork in real-time.
               </p>
             </SettingsSection>
           </div>
@@ -1565,25 +2023,46 @@ export default function FpsGame() {
           }}
         />
       )}
-      <div className="topRightHud">
-        <button
-          type="button"
-          className={`dayNightToggle${sunIsDay ? " day" : " night"}`}
-          aria-pressed={!sunIsDay}
-          title={sunIsDay ? "Switch to night" : "Switch to day"}
-          onClick={() => handleDayNightChange(!sunIsDay)}
-        >
-          <span className="dayNightGlyph" aria-hidden="true">
-            {sunIsDay ? "☀" : "☾"}
-          </span>
-          <span className="dayNightLabel">{sunIsDay ? "Day" : "Night"}</span>
-        </button>
-        <div ref={fpsRef} className="fpsCounter" aria-live="polite">
-          — FPS
+      {showFps && (
+        <div className="topRightHud">
+          <div ref={fpsRef} className="fpsCounter" aria-live="polite">
+            — FPS
+          </div>
+        </div>
+      )}
+      {hudTuneEnabled && (
+        <div className="hudTunePanel" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+          <div className="hudTuneHeader">
+            <span>HUD Position</span>
+            <button type="button" className="hudTuneClose" onClick={() => setHudTuneEnabled(false)}>×</button>
+          </div>
+          <fieldset className="hudPosGroup">
+            <legend>Settings</legend>
+            <label className="sliderRow"><span className="sliderLabel">X <output>{hudCogX}%</output></span>
+              <input type="range" min="0" max="20" step="0.5" value={hudCogX} onChange={(e) => setHudCogX(parseFloat(e.target.value))} /></label>
+            <label className="sliderRow"><span className="sliderLabel">Y <output>{hudCogY}%</output></span>
+              <input type="range" min="0" max="80" step="0.5" value={hudCogY} onChange={(e) => setHudCogY(parseFloat(e.target.value))} /></label>
+            <label className="sliderRow"><span className="sliderLabel">Size <output>{hudCogSize}%</output></span>
+              <input type="range" min="2" max="20" step="0.5" value={hudCogSize} onChange={(e) => setHudCogSize(parseFloat(e.target.value))} /></label>
+          </fieldset>
+        </div>
+      )}
+      <div ref={crosshairRef} className="crosshair crosshairVisible" />
+      <div
+        ref={deathOverlayRef}
+        className="deathOverlay"
+        role="alertdialog"
+        aria-live="assertive"
+        aria-hidden="true"
+      >
+        <div className="deathOverlayInner">
+          <h1 className="deathOverlayTitle">YOU DIED</h1>
+          <p
+            ref={deathReasonRef}
+            className="deathOverlayReason"
+          />
         </div>
       </div>
-      <div ref={crosshairRef} className="crosshair crosshairVisible" />
-      <CompassOverlay dialRef={compassDialRef} />
     </div>
   );
 }
