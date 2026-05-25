@@ -88,6 +88,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
+  text-align: center;
   color: rgba(94, 170, 255, 0.75);
   text-shadow: 0 0 6px rgba(59, 123, 255, 0.5);
 }
@@ -99,6 +100,7 @@ body {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.08em;
   line-height: 1;
+  text-align: center;
   color: rgba(94, 170, 255, 0.75);
   text-shadow: 0 0 10px rgba(59, 123, 255, 0.6);
 }
@@ -940,6 +942,22 @@ body {
   border-right: 3px solid transparent;
   border-bottom: 5px solid #5eaaff;
   filter: drop-shadow(0 0 3px rgba(94, 170, 255, 0.6));
+}
+
+.hudCompassDots {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hudCompassDot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: rgb(220, 40, 30);
+  box-shadow: 0 0 4px rgba(220, 40, 30, 0.8), 0 0 8px rgba(220, 40, 30, 0.4);
 }
 
 .hudCompassBearing {

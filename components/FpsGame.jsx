@@ -234,6 +234,7 @@ export default function FpsGame() {
   const fpsRef = useRef(null);
   const compassDialRef = useRef(null);
   const compassBearingRef = useRef(null);
+  const compassDotsRef = useRef(null);
   const deathOverlayRef = useRef(null);
   const deathReasonRef = useRef(null);
   /** Non-null while a death sequence is playing. `endTime` is the
@@ -1047,10 +1048,41 @@ export default function FpsGame() {
         }
         if (compassDialRef.current) {
           const yawDeg = (player.getYaw() * 180) / Math.PI;
-          compassDialRef.current.style.transform = `rotate(${-yawDeg}deg)`;
+          compassDialRef.current.style.transform = `rotate(${yawDeg}deg)`;
           if (compassBearingRef.current) {
             const bearing = (((-yawDeg % 360) + 360) % 360) | 0;
             compassBearingRef.current.textContent = `${bearing}°`;
+          }
+          if (compassDotsRef.current && level?.targets) {
+            const px = camera.position.x;
+            const pz = camera.position.z;
+            const yaw = player.getYaw();
+            const COMPASS_RANGE = 20;
+            const liveTargets = level.targets.filter(t => {
+              if (!t.visible || t.userData.health <= 0) return false;
+              const dx = t.position.x - px;
+              const dz = t.position.z - pz;
+              return dx * dx + dz * dz <= COMPASS_RANGE * COMPASS_RANGE;
+            });
+            const container = compassDotsRef.current;
+            while (container.children.length > liveTargets.length) container.lastChild.remove();
+            while (container.children.length < liveTargets.length) {
+              const dot = document.createElement("div");
+              dot.className = "hudCompassDot";
+              container.appendChild(dot);
+            }
+            for (let i = 0; i < liveTargets.length; i++) {
+              const t = liveTargets[i];
+              const dx = t.position.x - px;
+              const dz = t.position.z - pz;
+              const angle = Math.atan2(dx, -dz) + yaw;
+              const radius = 42;
+              const dotX = 50 + Math.sin(angle) * radius;
+              const dotY = 50 - Math.cos(angle) * radius;
+              const dot = container.children[i];
+              dot.style.left = `${dotX}%`;
+              dot.style.top = `${dotY}%`;
+            }
           }
         }
         camera.updateMatrixWorld(true);
@@ -1341,19 +1373,19 @@ export default function FpsGame() {
         </button>
 
         {/* Left section — ROUNDS */}
-        <div className={`hudAmmoStat hudAmmoStatLeft${roundsInMag < 15 ? " hudAmmoLow" : ""}`}>
+        <div className={`hudAmmoStat hudAmmoStatLeft${roundsInMag < 15 || (roundsInMag === 0 && spareMags === 0) ? " hudAmmoLow" : ""}`}>
           <span className="hudAmmoLabel">ROUNDS</span>
           <span className="hudAmmoValue">{String(roundsInMag).padStart(2, "0")}</span>
         </div>
 
         {/* Centre section — MAG */}
-        <div className="hudAmmoStat hudAmmoStatCenter">
+        <div className={`hudAmmoStat hudAmmoStatCenter${roundsInMag === 0 && spareMags === 0 ? " hudAmmoLow" : ""}`}>
           <span className="hudAmmoLabel">MAG</span>
           <span className="hudAmmoValue">{String(MAGAZINE_SIZE).padStart(2, "0")}</span>
         </div>
 
         {/* Right section — MAGS */}
-        <div className="hudAmmoStat hudAmmoStatRight">
+        <div className={`hudAmmoStat hudAmmoStatRight${roundsInMag === 0 && spareMags === 0 ? " hudAmmoLow" : ""}`}>
           <span className="hudAmmoLabel">MAGS</span>
           <span className="hudAmmoValue">{String(spareMags).padStart(2, "0")}</span>
         </div>
@@ -1396,6 +1428,7 @@ export default function FpsGame() {
               <span className="hudCompassMark hudCompassW">W</span>
             </div>
             <div className="hudCompassPointer" />
+            <div ref={compassDotsRef} className="hudCompassDots" />
             <span ref={compassBearingRef} className="hudCompassBearing">0°</span>
           </div>
         </div>
