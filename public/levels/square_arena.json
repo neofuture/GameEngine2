@@ -84,10 +84,10 @@
   "target": {
     "count": 5,
     "radius": 0.45,
-    "height": 2.2,
+    "height": 1.75,
     "maxHealth": 30,
     "respawnDelay": 2.5,
-    "repairPerSecond": 0.105,
+    "repairPerSecond": 0.63,
     "repairDelayAfterHit": 1.25
   }
 }

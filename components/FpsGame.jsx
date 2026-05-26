@@ -43,13 +43,29 @@ import { createInput } from "@/lib/Input";
 import { createPlayerController } from "@/lib/PlayerController";
 import { createBulletPool, loadViewWeapon } from "@/lib/ViewWeapon";
 import {
+  spawnAmmoDrop, updateAmmoDrops,
+  getGeometry as getCrateGeo, getMaterials as getCrateMats,
+} from "@/lib/AmmoCrate";
+import {
   applyTargetHit,
+  applyTargetPose,
   activateTargetAt,
   deactivateTarget,
+  DEFAULT_TARGET_POSE,
   disposeAllTargetHealthBars,
+  disposeAllHpOrbs,
   pickRandomSpawnPosition,
   renderTargetHealthBarsPass,
   setHealthBarOccluders,
+  setHitDebug,
+  setHitzoneOverlay,
+  spawnHpOrb,
+  startDeathAnimation,
+  updateDeathAnimations,
+  updateHitDebugMarkers,
+  updateHpOrbs,
+  getOrbGeometry,
+  getOrbMaterials,
   updateTargetsRepair,
   updateTargetHealthBars,
 } from "@/lib/Targets";
@@ -69,6 +85,8 @@ import SunTunePanel from "@/components/SunTunePanel";
 import StairTunePanel from "@/components/StairTunePanel";
 import HemisphereTunePanel from "@/components/HemisphereTunePanel";
 import WalkBobTunePanel from "@/components/WalkBobTunePanel";
+import TargetPoseTunePanel from "@/components/TargetPoseTunePanel";
+import LevelObjectTunePanel from "@/components/LevelObjectTunePanel";
 import { SettingsSection } from "@/components/SettingsSection";
 import {
   DEFAULT_HEMI_DAY,
@@ -118,6 +136,8 @@ import {
   wasBindingPressed,
 } from "@/lib/KeyBindings";
 
+const _radarScratch = new Array(64);
+
 const INVERT_Y_KEY = "fps-invert-y";
 const KEYBOARD_LOOK_KEY = "fps-keyboard-look";
 const KEYBOARD_EASE_KEY = "fps-keyboard-ease";
@@ -130,12 +150,14 @@ const STAIRS_TUNE_ENABLED_KEY = "fps-stairs-tune-enabled";
 const LEGACY_LOOK_SPEED_KEY = "fps-look-speed";
 const LEGACY_LOOK_EASE_KEY = "fps-look-ease";
 const RENDER_SCALE_KEY = "fps-render-scale";
+const PLAYER_HEIGHT_KEY = "fps-player-height";
 const SHOW_FPS_KEY = "fps-show-counter";
 const DEFAULT_LOOK = 7;
 const DEFAULT_MAX_LOOK_RATE = 2.5;
+const DEFAULT_PLAYER_HEIGHT = 1.65;
 /** Multiplier on `min(devicePixelRatio, 2)` — 1.0 = full quality, 0.5 = quarter pixel count. */
 const DEFAULT_RENDER_SCALE = 1.0;
-const MIN_RENDER_SCALE = 0.5;
+const MIN_RENDER_SCALE = 0.25;
 const MAX_RENDER_SCALE = 1.0;
 
 function loadRenderScale() {
@@ -163,10 +185,9 @@ const DAY_NIGHT_FADE_DURATION = 10;
  *  respawned. Generous enough that any normal walking surface inaccuracy
  *  can't trigger it — only a real fall through a hole reaches this depth. */
 const DEATH_FALL_DROP = 12;
-/** Time the death overlay stays fully opaque while the player is "dead"
- *  (frozen — no input, no physics, no respawn yet). At the end of this
- *  window the player is respawned and `DEATH_FADE_MS` begins. */
-const DEATH_FREEZE_MS = 1500;
+/** Minimum time the death overlay stays fully opaque before the player
+ *  can click to respawn. Prevents accidentally clicking through it. */
+const DEATH_MIN_DISPLAY_MS = 800;
 /** Time the overlay takes to fade out AFTER the player has respawned.
  *  The player can move/shoot/look around during this window — the fade
  *  is purely a visual transition off the death screen. */
@@ -228,19 +249,122 @@ function safeExitPointerLock() {
   }
 }
 
+const PICKUP_DISPLAY_MS = 2000;
+
+function PickupOverlay3D({ type }) {
+  const containerRef = useRef(null);
+  const [phase, setPhase] = useState("enter");
+
+  useEffect(() => {
+    const frameId = requestAnimationFrame(() => setPhase("visible"));
+    const hideTimer = setTimeout(() => setPhase("exit"), PICKUP_DISPLAY_MS);
+    return () => {
+      cancelAnimationFrame(frameId);
+      clearTimeout(hideTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const w = 360, h = 360;
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    el.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const cam = new THREE.PerspectiveCamera(35, w / h, 0.1, 20);
+    cam.position.set(0, 0.15, 1.8);
+    cam.lookAt(0, 0, 0);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+    dir.position.set(2, 3, 4);
+    scene.add(dir);
+
+    let mesh;
+    if (type === "ammo") {
+      mesh = new THREE.Mesh(getCrateGeo(), getCrateMats());
+      mesh.scale.setScalar(0.25);
+    } else {
+      mesh = new THREE.Mesh(getOrbGeometry(), getOrbMaterials());
+      mesh.rotation.z = Math.PI / 2;
+      mesh.scale.setScalar(1.0);
+    }
+    scene.add(mesh);
+
+    // Fit to view using the world-scale bounding box so both appear
+    // at the same relative size as they do on the ground.
+    const box = new THREE.Box3().setFromObject(mesh);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const fitScale = 0.9 / maxDim;
+    mesh.scale.multiplyScalar(fitScale);
+    box.setFromObject(mesh);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    mesh.position.sub(center);
+
+    let running = true;
+    let t = 0;
+    const startY = -2.0;
+    const endY = 0;
+    const zoomDuration = 0.6;
+    mesh.position.y += startY;
+
+    function animate() {
+      if (!running) return;
+      requestAnimationFrame(animate);
+      t += 1 / 60;
+      mesh.rotation.y += 0.008;
+
+      const zoomT = Math.min(1, t / zoomDuration);
+      const ease = 1 - Math.pow(1 - zoomT, 3);
+      const offsetY = startY + (endY - startY) * ease;
+      mesh.position.y = -center.y + offsetY;
+
+      renderer.render(scene, cam);
+    }
+    animate();
+
+    return () => {
+      running = false;
+      renderer.dispose();
+      el.removeChild(renderer.domElement);
+    };
+  }, [type]);
+
+  const label = type === "ammo" ? "10 Ammo Rounds" : "10 Hit Points";
+
+  return (
+    <div className={`pickupOverlay pickupOverlay--${phase}`} aria-hidden="true">
+      <div className="pickupOverlay3DLabel">{label}</div>
+      <div ref={containerRef} className="pickupOverlay3DCanvas" />
+    </div>
+  );
+}
+
 export default function FpsGame() {
   const canvasRef = useRef(null);
   const crosshairRef = useRef(null);
   const fpsRef = useRef(null);
   const compassDialRef = useRef(null);
   const compassBearingRef = useRef(null);
-  const compassDotsRef = useRef(null);
+  const radarRef = useRef(null);
+  const radarSweepRef = useRef(null);
+  const radarDotsRef = useRef(null);
   const deathOverlayRef = useRef(null);
   const deathReasonRef = useRef(null);
-  /** Non-null while a death sequence is playing. `endTime` is the
-   *  `performance.now()` ms after which the player respawns and the
-   *  overlay disappears. Input/physics/weapon are gated on this. */
+  /** Non-null while a death sequence is playing. The player stays frozen
+   *  until they click to respawn. Input/physics/weapon are gated on this. */
   const deathStateRef = useRef(null);
+  /** Callback set by the game loop to trigger a respawn from outside the
+   *  effect (e.g. the overlay's onClick handler). */
+  const respawnCallbackRef = useRef(null);
   const [invertYLook, setInvertYLook] = useState(false);
   const [renderScale, setRenderScale] = useState(DEFAULT_RENDER_SCALE);
   const renderScaleRef = useRef(DEFAULT_RENDER_SCALE);
@@ -250,6 +374,7 @@ export default function FpsGame() {
   const [mouseLook, setMouseLook] = useState(DEFAULT_LOOK);
   const [mouseEase, setMouseEase] = useState(DEFAULT_LOOK);
   const [maxLookRate, setMaxLookRate] = useState(DEFAULT_MAX_LOOK_RATE);
+  const [playerHeight, setPlayerHeight] = useState(DEFAULT_PLAYER_HEIGHT);
   const [sunAzimuth, setSunAzimuth] = useState(() => loadSunAngles().azimuth);
   const [sunElevation, setSunElevation] = useState(() => loadSunAngles().elevation);
   const initialMoonAngles = loadMoonAngles();
@@ -272,19 +397,22 @@ export default function FpsGame() {
   const [floorDeckY, setFloorDeckY] = useState(0);
   const [catwalkDeckY, setCatwalkDeckY] = useState(4.13);
   const [pointerLocked, setPointerLocked] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [loadDone, setLoadDone] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [showFps, setShowFps] = useState(false);
+  const [showDevOverlay, setShowDevOverlay] = useState(() => window.localStorage.getItem("fps-show-dev-overlay") === "true");
   const [hudTuneEnabled, setHudTuneEnabled] = useState(false);
   const [hudCogX, setHudCogX] = useState(4);
   const [hudCogY, setHudCogY] = useState(32);
   const [hudCogSize, setHudCogSize] = useState(8);
   const [hudRoundsX, setHudRoundsX] = useState(33);
-  const [hudRoundsY, setHudRoundsY] = useState(14);
+  const [hudRoundsY, setHudRoundsY] = useState(10);
   const [hudMagX, setHudMagX] = useState(50);
-  const [hudMagY, setHudMagY] = useState(14);
+  const [hudMagY, setHudMagY] = useState(10);
   const [hudMagsX, setHudMagsX] = useState(67);
-  const [hudMagsY, setHudMagsY] = useState(14);
+  const [hudMagsY, setHudMagsY] = useState(10);
   const [hudValueFont, setHudValueFont] = useState(4.4);
   const [hudLabelY, setHudLabelY] = useState(8);
   const [hudFireModeY, setHudFireModeY] = useState(14.5);
@@ -299,7 +427,28 @@ export default function FpsGame() {
   const [hbBarW, setHbBarW] = useState(76);
   const [hbBarH, setHbBarH] = useState(33.5);
   const [hbCorner, setHbCorner] = useState(3);
+  const [radarInnerX] = useState(52);
+  const [radarInnerY] = useState(50);
+  const [radarInnerSize] = useState(80);
+  const [radarX] = useState(1);
+  const [radarY] = useState(1);
+  const [radarScale] = useState(11);
   const [weaponTuneEnabled, setWeaponTuneEnabled] = useState(false);
+  const [targetTuneEnabled, setTargetTuneEnabled] = useState(false);
+  const [targetPose, setTargetPose] = useState(() => ({ ...DEFAULT_TARGET_POSE }));
+  const [targetApplyAll, setTargetApplyAll] = useState(true);
+  const selectedTargetRef = useRef(null);
+  const targetTuneEnabledRef = useRef(false);
+  const targetsRef = useRef([]);
+  const [hitDebugEnabled, setHitDebugEnabled] = useState(false);
+  const hitDebugEnabledRef = useRef(false);
+  const [hitzoneOverlayEnabled, setHitzoneOverlayEnabled] = useState(false);
+  const [levelEditEnabled, setLevelEditEnabled] = useState(false);
+  const levelEditEnabledRef = useRef(false);
+  const selectedLevelObjectRef = useRef(null);
+  const [selectedLevelObjectVer, setSelectedLevelObjectVer] = useState(0);
+  const levelObjectsRef = useRef([]);
+  const sceneRef = useRef(null);
   const [bindings, setBindings] = useState(() => loadBindings());
   const [rebindAction, setRebindAction] = useState(null);
   const bindingsRef = useRef(loadBindings());
@@ -312,6 +461,7 @@ export default function FpsGame() {
   const mouseLookRef = useRef(DEFAULT_LOOK);
   const mouseEaseRef = useRef(DEFAULT_LOOK);
   const maxLookRateRef = useRef(DEFAULT_MAX_LOOK_RATE);
+  const playerHeightRef = useRef(DEFAULT_PLAYER_HEIGHT);
   const storedSunAngles = loadSunAngles();
   const sunAnglesRef = useRef(storedSunAngles);
   const sunLightPosRef = useRef(
@@ -355,7 +505,11 @@ export default function FpsGame() {
   const [roundsInMag, setRoundsInMag] = useState(MAGAZINE_SIZE);
   const [spareMags, setSpareMags] = useState(SPARE_MAGAZINES);
   const [playerHealth, setPlayerHealth] = useState(100);
+  const [pickupFlash, setPickupFlash] = useState(null);
   const [playerLives, setPlayerLives] = useState(3);
+  const [hostileCount, setHostileCount] = useState(0);
+  const [missionTime, setMissionTime] = useState(0);
+  const missionTimeRef = useRef(0);
   const playerHealthRef = useRef(100);
   const playerLivesRef = useRef(3);
   const fireModeRef = useRef("single");
@@ -465,6 +619,9 @@ export default function FpsGame() {
     setMouseLook(mLook);
     setMouseEase(mEase);
     setMaxLookRate(maxRate);
+    const storedHeight = read(PLAYER_HEIGHT_KEY, DEFAULT_PLAYER_HEIGHT);
+    setPlayerHeight(storedHeight);
+    playerHeightRef.current = storedHeight;
     invertYRef.current = storedInvert;
     keyboardLookRef.current = kbLook;
     keyboardEaseRef.current = kbEase;
@@ -480,6 +637,7 @@ export default function FpsGame() {
   mouseLookRef.current = mouseLook;
   mouseEaseRef.current = mouseEase;
   maxLookRateRef.current = maxLookRate;
+  playerHeightRef.current = playerHeight;
   sunAnglesRef.current = { azimuth: sunAzimuth, elevation: sunElevation };
   sunLightPosRef.current = sunPositionFromAngles(sunAzimuth, sunElevation);
   moonAnglesRef.current = { azimuth: moonAzimuth, elevation: moonElevation };
@@ -539,6 +697,8 @@ export default function FpsGame() {
 
       scene = new THREE.Scene();
       scene.fog = new THREE.Fog(DAY_CLEAR_COLOR, 45, 95);
+      sceneRef.current = scene;
+      if (hitDebugEnabledRef.current) setHitDebug(scene, true);
 
       const HIP_FOV = 75;
       const ADS_FOV = 52;
@@ -555,12 +715,14 @@ export default function FpsGame() {
       const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
       const arena = await loadArenaConfig();
       if (!isActive()) return;
+      setLoadProgress(20);
 
       levelTextures = await loadLevelTextureLibrary(
         maxAnisotropy,
         collectArenaTextureIds(arena)
       );
       if (!isActive()) return;
+      setLoadProgress(60);
 
       const sheltered = (arena.ceilingThickness ?? 0) > 0;
       const { sun, moon, hemi, outdoorLights } = createOutdoorLights(scene, {
@@ -600,6 +762,9 @@ export default function FpsGame() {
       assignWorldLayers(level.group);
       disableInteriorCastShadows(level.group);
       setHealthBarOccluders(level.group);
+      setLoadProgress(85);
+      targetsRef.current = level.targets;
+      levelObjectsRef.current = level.pillarMeshes ?? [];
       // Per-room culling: hide interior shells and disable their lights
       // when the room isn't visible to the camera (and the player isn't
       // standing in it). Skips the room render pass entirely on frames
@@ -748,6 +913,7 @@ export default function FpsGame() {
         ],
         getGroundSurfaces: () => level.groundSurfaces,
         getFloorHoles: () => level.floorHoles ?? [],
+        getFloorBounds: () => level.floorBounds,
         getBindings: () => bindingsRef.current,
         getInvertYLook: () => invertYRef.current,
         getKeyboardLookSpeed: () => keyboardLookRef.current,
@@ -755,11 +921,18 @@ export default function FpsGame() {
         getMouseLookSpeed: () => mouseLookRef.current,
         getMouseLookEase: () => mouseEaseRef.current,
         getMaxLookRate: () => maxLookRateRef.current,
+        getStandEyeHeight: () => playerHeightRef.current,
         getWalkBobTuning: () =>
           resolveWalkBobTuning(walkBobTuningRef.current),
       });
 
+      respawnCallbackRef.current = () => {
+        player.respawn();
+      };
+
       const shootRaycaster = new THREE.Raycaster();
+      const hitRaycaster = new THREE.Raycaster();
+      const screenCenter = new THREE.Vector2(0, 0);
       const currentWeaponLoad = ++weaponLoadId;
       loadViewWeapon(camera, scene, undefined, { maxAnisotropy })
         .then((loaded) => {
@@ -774,6 +947,11 @@ export default function FpsGame() {
         .catch((err) => console.error("Rifle model failed to load:", err));
       bulletPool = createBulletPool();
       bullets = [];
+      const hpOrbs = [];
+      const ammoDrops = [];
+      const allColliders = [...level.colliders, ...level.stairColliders];
+      let _lastHostileCount = -1;
+      let _radarFrameSkip = 0;
       const muzzlePos = new THREE.Vector3();
       const muzzleDir = new THREE.Vector3();
       const BULLET_SPEED = 75;
@@ -791,22 +969,51 @@ export default function FpsGame() {
         setTimeout(() => {
           if (disposed) return;
           const pos = pickRandomSpawnPosition({
-            bounds: level.bounds,
-            colliders: level.colliders,
+            bounds: level.arenaBounds,
+            colliders: allColliders,
             targets: level.targets,
             config: targetConfig,
             skip: mesh,
+            floorHoles: level.floorHoles,
           });
           if (!pos) return;
-          activateTargetAt(mesh, pos.x, pos.z, targetConfig);
+          activateTargetAt(mesh, pos.x, pos.z, targetConfig, pos.y);
         }, delayMs);
       }
 
-      function applyHit(hit) {
-        const { killed } = applyTargetHit(hit.object);
+      function applyHit(hit, bulletDirection) {
+        if (targetTuneEnabledRef.current) {
+          selectedTargetRef.current = hit.object;
+        }
+        const { killed, zone } = applyTargetHit(hit.object, hit.point, bulletDirection);
         if (killed) {
-          deactivateTarget(hit.object);
-          scheduleRespawn(hit.object);
+          const deathPos = hit.object.position.clone();
+          const rndAngle = Math.random() * Math.PI * 2;
+          const rndOff = 0.3 + Math.random() * 0.5;
+          const hpDelay = 800 + Math.random() * 400;   // ~1s
+          const ammoDelay = 1800 + Math.random() * 400; // ~2s
+          setTimeout(() => {
+            hpOrbs.push(spawnHpOrb(scene, new THREE.Vector3(
+              deathPos.x + Math.cos(rndAngle) * rndOff,
+              deathPos.y,
+              deathPos.z + Math.sin(rndAngle) * rndOff,
+            ), level.floorY));
+          }, hpDelay);
+          setTimeout(() => {
+            ammoDrops.push(spawnAmmoDrop(scene, new THREE.Vector3(
+              deathPos.x + Math.cos(rndAngle + Math.PI) * rndOff,
+              deathPos.y,
+              deathPos.z + Math.sin(rndAngle + Math.PI) * rndOff,
+            ), level.floorY));
+          }, ammoDelay);
+          startDeathAnimation(hit.object, bulletDirection, {
+            scene,
+            colliders: allColliders,
+            floorY: level.floorY,
+            bounds: level.bounds,
+            hitZone: zone,
+            hitPoint: hit.point,
+          });
         }
       }
 
@@ -818,8 +1025,10 @@ export default function FpsGame() {
         bullets.splice(index, 1);
       }
 
-      function spawnBullet(origin, direction) {
-        const bullet = bulletPool.spawn(scene, origin, direction);
+      function spawnBullet(origin, direction, visualOrigin) {
+        const bullet = bulletPool.spawn(scene, visualOrigin ?? origin, direction);
+        bullet.hitOrigin = origin.clone();
+        bullet.hitPos = origin.clone();
         bullet.traveled = 0;
         bullets.push(bullet);
       }
@@ -845,21 +1054,43 @@ export default function FpsGame() {
         );
       }
 
-      function tryReload() {
+      function tryReload(force) {
         if (spareMagsRef.current <= 0) return false;
+        if (!force && roundsInMagRef.current >= 15) return false;
         spareMagsRef.current -= 1;
-        roundsInMagRef.current = MAGAZINE_SIZE;
+        roundsInMagRef.current = Math.min(
+          roundsInMagRef.current + MAGAZINE_SIZE,
+          MAGAZINE_SIZE * 2
+        );
         syncAmmoToUi();
         return true;
       }
 
       function fireOneRound() {
-        if (roundsInMagRef.current <= 0 && !tryReload()) return false;
+        if (roundsInMagRef.current <= 0 && !tryReload(true)) return false;
 
         roundsInMagRef.current -= 1;
         syncAmmoToUi();
         weapon.getMuzzleWorld(muzzlePos, muzzleDir, camera);
-        spawnBullet(muzzlePos, muzzleDir);
+
+        hitRaycaster.setFromCamera(screenCenter, camera);
+
+        if (levelEditEnabledRef.current && levelObjectsRef.current.length) {
+          const loHits = hitRaycaster.intersectObjects(levelObjectsRef.current, false);
+          if (loHits.length) {
+            const prev = selectedLevelObjectRef.current;
+            if (prev && prev !== loHits[0].object) {
+              prev.material.emissive?.setHex(0x000000);
+            }
+            const selected = loHits[0].object;
+            selected.material.emissive?.setHex(0x222222);
+            selectedLevelObjectRef.current = selected;
+            setSelectedLevelObjectVer((v) => v + 1);
+          }
+        }
+
+        const camDir = hitRaycaster.ray.direction.clone();
+        spawnBullet(hitRaycaster.ray.origin.clone(), camDir, muzzlePos);
         flashMuzzle();
         return true;
       }
@@ -903,21 +1134,30 @@ export default function FpsGame() {
         }
       }
 
+      const _bulletStepVec = new THREE.Vector3();
+      const _bulletNextHit = new THREE.Vector3();
+
       function updateBullets(dt) {
+        if (bullets.length === 0) return;
         const targets = getLiveTargets();
         for (let i = bullets.length - 1; i >= 0; i--) {
           const bullet = bullets[i];
-          const prev = bullet.mesh.position.clone();
-          const step = bullet.direction.clone().multiplyScalar(BULLET_SPEED * dt);
-          bullet.mesh.position.add(step);
-          bullet.traveled += step.length();
+          const stepLen = BULLET_SPEED * dt;
 
-          shootRaycaster.set(prev, bullet.direction);
-          shootRaycaster.far = step.length() + 0.05;
+          bullet.mesh.position.addScaledVector(bullet.direction, stepLen);
+
+          const prevHit = bullet.hitPos;
+          _bulletNextHit.copy(prevHit).addScaledVector(bullet.direction, stepLen);
+
+          shootRaycaster.set(prevHit, bullet.direction);
+          shootRaycaster.far = stepLen + 0.05;
           const hits = shootRaycaster.intersectObjects(targets, false);
+
+          bullet.hitPos.copy(_bulletNextHit);
+          bullet.traveled += stepLen;
+
           if (hits[0]) {
-            bullet.mesh.position.copy(hits[0].point);
-            applyHit(hits[0]);
+            applyHit(hits[0], bullet.direction);
             removeBullet(i);
             continue;
           }
@@ -963,8 +1203,9 @@ export default function FpsGame() {
 
         // Death sequence (two phases):
         //   1. FREEZE  — overlay is fully opaque, player is not respawned,
-        //                input/physics/weapons are disabled. Lasts
-        //                `DEATH_FREEZE_MS`.
+        //                input/physics/weapons are disabled. Stays until the
+        //                player clicks to respawn (after a brief minimum
+        //                display time to prevent accidental click-through).
         //   2. FADE    — player has just been respawned; the overlay fades
         //                out over `DEATH_FADE_MS` while the player can
         //                already move and shoot.
@@ -973,12 +1214,16 @@ export default function FpsGame() {
         const deathState = deathStateRef.current;
         let frozen = false;
         if (deathState) {
-          if (!deathState.respawned && now >= deathState.respawnTime) {
-            player.respawn();
-            deathState.respawned = true;
-            playerHealthRef.current = 100;
-            setPlayerHealth(100);
-            beginDeathOverlayFade(deathOverlayRef.current);
+          if (!deathState.respawned) {
+            const canRespawn = now >= deathState.minDisplayEnd;
+            if (canRespawn && input.consumeShoot()) {
+              player.respawn();
+              deathState.respawned = true;
+              playerHealthRef.current = 100;
+              setPlayerHealth(100);
+              deathState.fadeEndTime = now + DEATH_FADE_MS;
+              beginDeathOverlayFade(deathOverlayRef.current);
+            }
           }
           if (deathState.respawned && now >= deathState.fadeEndTime) {
             hideDeathOverlay(deathOverlayRef.current);
@@ -1013,8 +1258,8 @@ export default function FpsGame() {
             deathStateRef.current = {
               reason,
               respawned: false,
-              respawnTime: now + DEATH_FREEZE_MS,
-              fadeEndTime: now + DEATH_FREEZE_MS + DEATH_FADE_MS,
+              minDisplayEnd: now + DEATH_MIN_DISPLAY_MS,
+              fadeEndTime: Infinity,
             };
             showDeathOverlay(
               deathOverlayRef.current,
@@ -1035,8 +1280,8 @@ export default function FpsGame() {
             deathStateRef.current = {
               reason,
               respawned: false,
-              respawnTime: now + DEATH_FREEZE_MS,
-              fadeEndTime: now + DEATH_FREEZE_MS + DEATH_FADE_MS,
+              minDisplayEnd: now + DEATH_MIN_DISPLAY_MS,
+              fadeEndTime: Infinity,
             };
             showDeathOverlay(
               deathOverlayRef.current,
@@ -1053,36 +1298,93 @@ export default function FpsGame() {
             const bearing = (((-yawDeg % 360) + 360) % 360) | 0;
             compassBearingRef.current.textContent = `${bearing}°`;
           }
-          if (compassDotsRef.current && level?.targets) {
-            const px = camera.position.x;
-            const pz = camera.position.z;
-            const yaw = player.getYaw();
-            const COMPASS_RANGE = 20;
-            const liveTargets = level.targets.filter(t => {
-              if (!t.visible || t.userData.health <= 0) return false;
-              const dx = t.position.x - px;
-              const dz = t.position.z - pz;
-              return dx * dx + dz * dz <= COMPASS_RANGE * COMPASS_RANGE;
-            });
-            const container = compassDotsRef.current;
-            while (container.children.length > liveTargets.length) container.lastChild.remove();
-            while (container.children.length < liveTargets.length) {
-              const dot = document.createElement("div");
-              dot.className = "hudCompassDot";
-              container.appendChild(dot);
+        }
+        if (radarDotsRef.current && level?.targets) {
+          const px = camera.position.x;
+          const pz = camera.position.z;
+          const yaw = player.getYaw();
+          const RADAR_RANGE = 30;
+
+          if (radarSweepRef.current) {
+            const canvas = radarSweepRef.current;
+            const sweepSpeed = 90;
+            const prev = parseFloat(canvas.dataset.angle || "0");
+            const next = (prev + sweepSpeed * dt) % 360;
+            canvas.dataset.angle = next;
+
+            _radarFrameSkip = (_radarFrameSkip + 1) % 3;
+            if (_radarFrameSkip === 0) {
+              const ctx = canvas.getContext("2d", { alpha: true });
+              const cx = canvas.width / 2;
+              const cy = canvas.height / 2;
+              const r = cx - 2;
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              const sweepRad = (next - 90) * (Math.PI / 180);
+              const tailSpan = 70 * (Math.PI / 180);
+              const slices = 12;
+              for (let s = 0; s < slices; s++) {
+                const t0 = s / slices;
+                const alpha = t0 * t0 * 0.85;
+                const a0 = sweepRad - tailSpan + (tailSpan * s) / slices;
+                const a1 = sweepRad - tailSpan + (tailSpan * (s + 1)) / slices;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.arc(cx, cy, r, a0, a1);
+                ctx.closePath();
+                ctx.fillStyle = `rgba(30, 170, 255, ${alpha})`;
+                ctx.fill();
+              }
+              const ex = cx + Math.cos(sweepRad) * r;
+              const ey = cy + Math.sin(sweepRad) * r;
+              ctx.beginPath();
+              ctx.moveTo(cx, cy);
+              ctx.lineTo(ex, ey);
+              ctx.strokeStyle = "rgba(30, 160, 255, 0.35)";
+              ctx.lineWidth = 6;
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.moveTo(cx, cy);
+              ctx.lineTo(ex, ey);
+              ctx.strokeStyle = "rgba(30, 170, 255, 1)";
+              ctx.lineWidth = 2;
+              ctx.stroke();
             }
-            for (let i = 0; i < liveTargets.length; i++) {
-              const t = liveTargets[i];
-              const dx = t.position.x - px;
-              const dz = t.position.z - pz;
-              const angle = Math.atan2(dx, -dz) + yaw;
-              const radius = 42;
-              const dotX = 50 + Math.sin(angle) * radius;
-              const dotY = 50 - Math.cos(angle) * radius;
-              const dot = container.children[i];
-              dot.style.left = `${dotX}%`;
-              dot.style.top = `${dotY}%`;
+          }
+
+          let radarTargetCount = 0;
+          for (const t of level.targets) {
+            if (!t.visible || t.userData.health <= 0) continue;
+            const dx = t.position.x - px;
+            const dz = t.position.z - pz;
+            if (dx * dx + dz * dz <= RADAR_RANGE * RADAR_RANGE) {
+              _radarScratch[radarTargetCount++] = t;
             }
+          }
+          const container = radarDotsRef.current;
+          while (container.children.length > radarTargetCount) container.lastChild.remove();
+          while (container.children.length < radarTargetCount) {
+            const dot = document.createElement("div");
+            dot.className = "radarBlip";
+            container.appendChild(dot);
+          }
+          const sweepAngleDeg = parseFloat(radarSweepRef.current?.dataset.angle || "0");
+          const sweepRad = (sweepAngleDeg * Math.PI) / 180;
+          for (let i = 0; i < radarTargetCount; i++) {
+            const t = _radarScratch[i];
+            const dx = t.position.x - px;
+            const dz = t.position.z - pz;
+            const angle = Math.atan2(dx, -dz) + yaw;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            const r = (dist / RADAR_RANGE) * 44;
+            const dotX = 50 + Math.sin(angle) * r;
+            const dotY = 50 - Math.cos(angle) * r;
+            const dot = container.children[i];
+            dot.style.left = `${dotX}%`;
+            dot.style.top = `${dotY}%`;
+
+            let angleDiff = ((sweepRad - angle) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+            const fade = angleDiff < Math.PI ? Math.max(0, 1 - angleDiff / Math.PI) : 0;
+            dot.style.opacity = Math.max(0.15, fade);
           }
         }
         camera.updateMatrixWorld(true);
@@ -1130,6 +1432,15 @@ export default function FpsGame() {
           !rebindActionRef.current &&
           !settingsOpenRef.current &&
           !controlsOpenRef.current &&
+          wasBindingPressed(input, bindingsRef.current, "reload")
+        ) {
+          tryReload();
+        }
+
+        if (
+          !rebindActionRef.current &&
+          !settingsOpenRef.current &&
+          !controlsOpenRef.current &&
           wasBindingPressed(input, bindingsRef.current, "cycleFireMode")
         ) {
           const modes = FIRE_MODE_ORDER;
@@ -1154,6 +1465,55 @@ export default function FpsGame() {
         updateBullets(dt);
         updateTargetsRepair(level.targets, dt);
         updateTargetHealthBars(level.targets, dt, camera);
+        updateHitDebugMarkers(dt);
+        updateDeathAnimations(level.targets, dt, (mesh) => {
+          deactivateTarget(mesh);
+          scheduleRespawn(mesh);
+        }, {
+          colliders: allColliders,
+          floorY: level.floorY,
+          bounds: level.bounds,
+        });
+
+
+        updateHpOrbs(
+          hpOrbs, dt, camera.position,
+          (value) => {
+            const next = playerHealthRef.current + value;
+            playerHealthRef.current = next;
+            setPlayerHealth(next);
+            setPickupFlash({ type: "hp", ts: Date.now() });
+          },
+          allColliders,
+          level.bounds,
+        );
+
+        updateAmmoDrops(
+          ammoDrops, dt, camera.position,
+          (value) => {
+            roundsInMagRef.current += value;
+            syncAmmoToUi();
+            setPickupFlash({ type: "ammo", ts: Date.now() });
+          },
+          allColliders,
+          level.bounds,
+        );
+
+        if (!frozen) {
+          missionTimeRef.current += dt;
+          const secs = Math.floor(missionTimeRef.current);
+          if (secs !== Math.floor(missionTimeRef.current - dt)) {
+            setMissionTime(secs);
+          }
+        }
+        let aliveCount = 0;
+        for (const t of level.targets) {
+          if (t.visible && t.userData.health > 0 && !t.userData.dying) aliveCount++;
+        }
+        if (aliveCount !== _lastHostileCount) {
+          _lastHostileCount = aliveCount;
+          setHostileCount(aliveCount);
+        }
 
         input.endFrame();
         sun.target.updateMatrixWorld();
@@ -1194,6 +1554,15 @@ export default function FpsGame() {
 
       onCanvasClick = (e) => {
         if (e.target !== canvas) return;
+        const ds = deathStateRef.current;
+        if (ds && !ds.respawned && performance.now() >= ds.minDisplayEnd) {
+          player.respawn();
+          ds.respawned = true;
+          ds.fadeEndTime = performance.now() + DEATH_FADE_MS;
+          playerHealthRef.current = 100;
+          setPlayerHealth(100);
+          beginDeathOverlayFade(deathOverlayRef.current);
+        }
         safeRequestPointerLock(canvas);
       };
       onPointerLockChange = () => syncPointerLocked();
@@ -1263,8 +1632,14 @@ export default function FpsGame() {
       }
 
       gameReady = true;
-      syncPointerLocked();
+      setLoadProgress(100);
       rafId = requestAnimationFrame(animate);
+
+      // 2-second cooldown to let GPU compile shaders / settle
+      setTimeout(() => {
+        setLoadDone(true);
+        syncPointerLocked();
+      }, 2000);
     }
 
     init().catch((err) => console.error("Game init failed:", err));
@@ -1289,6 +1664,12 @@ export default function FpsGame() {
       if (targets) {
         disposeAllTargetHealthBars(targets);
       }
+      disposeAllHpOrbs(hpOrbs);
+      for (const d of ammoDrops) {
+        d.mesh.parent?.remove(d.mesh);
+        if (d.ownMats) for (const m of d.mesh.material) m.dispose();
+      }
+      ammoDrops.length = 0;
       setHealthBarOccluders(null);
       levelTextures?.dispose();
       levelTextures = null;
@@ -1304,6 +1685,7 @@ export default function FpsGame() {
       }
       weapon?.dispose();
       weaponRef.current = null;
+      respawnCallbackRef.current = null;
       hemiRef.current = null;
       input?.dispose();
       sky?.dispose();
@@ -1333,6 +1715,13 @@ export default function FpsGame() {
 
   return (
     <div className="gameRoot">
+      <div className={`loadingOverlay${loadDone ? " loadingDone" : ""}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/ui/logo.png" alt="VX-27" className="loadingLogo" />
+        <div className="loadingBarTrack">
+          <div className="loadingBarFill" style={{ width: `${loadProgress}%` }} />
+        </div>
+      </div>
       <canvas ref={canvasRef} className="gameCanvas" />
       <div
         className="hudBottomBar"
@@ -1428,37 +1817,58 @@ export default function FpsGame() {
               <span className="hudCompassMark hudCompassW">W</span>
             </div>
             <div className="hudCompassPointer" />
-            <div ref={compassDotsRef} className="hudCompassDots" />
             <span ref={compassBearingRef} className="hudCompassBearing">0°</span>
           </div>
         </div>
       </div>
 
-      {/* Demo damage button — temporary */}
-      <div className="demoBtnGroup">
-        <button
-          type="button"
-          className="demoDamageBtn"
-          onClick={() => {
-            const next = Math.max(0, playerHealthRef.current - 10);
-            playerHealthRef.current = next;
-            setPlayerHealth(next);
-          }}
-        >
-          −10 HP
-        </button>
-        <button
-          type="button"
-          className="demoHealBtn"
-          onClick={() => {
-            const next = playerHealthRef.current + 10;
-            playerHealthRef.current = next;
-            setPlayerHealth(next);
-          }}
-        >
-          +10 HP
-        </button>
+      {/* Radar — top left */}
+      <div className="hudRadar" ref={radarRef} style={{
+        left: `${radarX}rem`,
+        top: `${radarY}rem`,
+        width: `${radarScale}rem`,
+        height: `${radarScale}rem`,
+      }}>
+        <div className="radarRing">
+          <div className="radarInner" style={{
+            left: `${radarInnerX}%`,
+            top: `${radarInnerY}%`,
+            width: `${radarInnerSize}%`,
+            height: `${radarInnerSize}%`,
+          }}>
+            <canvas ref={radarSweepRef} className="radarSweepCanvas" width="200" height="200" />
+            <div ref={radarDotsRef} className="radarDots" />
+            <div className="radarCenter" />
+          </div>
+        </div>
       </div>
+
+      {showDevOverlay && (
+        <div className="demoBtnGroup">
+          <button
+            type="button"
+            className="demoDamageBtn"
+            onClick={() => {
+              const next = Math.max(0, playerHealthRef.current - 10);
+              playerHealthRef.current = next;
+              setPlayerHealth(next);
+            }}
+          >
+            −10 HP
+          </button>
+          <button
+            type="button"
+            className="demoHealBtn"
+            onClick={() => {
+              const next = playerHealthRef.current + 10;
+              playerHealthRef.current = next;
+              setPlayerHealth(next);
+            }}
+          >
+            +10 HP
+          </button>
+        </div>
+      )}
 
       {/* Health bar — top right */}
       <div
@@ -1519,6 +1929,15 @@ export default function FpsGame() {
         </div>
       </div>
 
+      {/* Mission info — below health bar */}
+      <div className="hudMissionInfo">
+        <div className="hudMissionObjective">OBJECTIVE: HOLD ZONE</div>
+        <div className="hudMissionStats">
+          <span className="hudMissionStat">HOSTILES: <strong>{String(hostileCount).padStart(2, "0")}</strong></span>
+          <span className="hudMissionStat">TIMER: <strong>{`${String(Math.floor(missionTime / 60)).padStart(2, "0")}:${String(missionTime % 60).padStart(2, "0")}`}</strong></span>
+        </div>
+      </div>
+
       {/* Red vignette when low health */}
       <div
         className="hudDamageVignette"
@@ -1536,6 +1955,7 @@ export default function FpsGame() {
             role="dialog"
             aria-labelledby="settings-title"
             onClick={(e) => e.stopPropagation()}
+            onWheel={(e) => e.stopPropagation()}
           >
             <div className="settingsHeader">
               <h2 id="settings-title">Settings</h2>
@@ -1547,6 +1967,7 @@ export default function FpsGame() {
                 Close
               </button>
             </div>
+            <div className="settingsBody">
             <SettingsSection title="Controls" defaultOpen>
               <p className="settingsHint" style={{ marginTop: 0 }}>
                 Configure keyboard and mouse bindings.
@@ -1658,6 +2079,30 @@ export default function FpsGame() {
               <p className="settingsHint">
                 Shows the in-game weapon tune panel (hip / aim poses and look
                 shift sliders).
+              </p>
+            </SettingsSection>
+
+            <SettingsSection title="Player">
+              <label className="sliderRow">
+                <span className="sliderLabel">
+                  Eye height <output>{playerHeight.toFixed(2)}m</output>
+                </span>
+                <input
+                  type="range"
+                  min="1.0"
+                  max="2.2"
+                  step="0.05"
+                  value={playerHeight}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value);
+                    setPlayerHeight(value);
+                    playerHeightRef.current = value;
+                    localStorage.setItem(PLAYER_HEIGHT_KEY, String(value));
+                  }}
+                />
+              </label>
+              <p className="settingsHint">
+                Camera height when standing. Default 1.65m (≈ 5′9″ total).
               </p>
             </SettingsSection>
 
@@ -1807,6 +2252,89 @@ export default function FpsGame() {
               <label className="settingRow">
                 <input
                   type="checkbox"
+                  checked={levelEditEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setLevelEditEnabled(checked);
+                    levelEditEnabledRef.current = checked;
+                    if (!checked) {
+                      const prev = selectedLevelObjectRef.current;
+                      if (prev) prev.material.emissive?.setHex(0x000000);
+                      selectedLevelObjectRef.current = null;
+                      setSelectedLevelObjectVer((v) => v + 1);
+                    }
+                  }}
+                />
+                Level object editor
+              </label>
+              <p className="settingsHint">
+                Shoot a pillar to select it. Adjust texture offset, rotation, and position
+                with sliders. Copy JSON to paste into your level file.
+              </p>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={targetTuneEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setTargetTuneEnabled(checked);
+                    targetTuneEnabledRef.current = checked;
+                    if (!checked) selectedTargetRef.current = null;
+                  }}
+                />
+                Target pose tuning
+              </label>
+              <p className="settingsHint">
+                Shoot a target to select it, then adjust its pose with sliders.
+              </p>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={hitDebugEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setHitDebugEnabled(checked);
+                    hitDebugEnabledRef.current = checked;
+                    if (sceneRef.current) setHitDebug(sceneRef.current, checked);
+                  }}
+                />
+                Hit debug markers
+              </label>
+              <p className="settingsHint">
+                Shows colored dots where shots register. Zone color = hit, white = miss (gap).
+                Green dot + yellow line = precision raycast result.
+              </p>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={hitzoneOverlayEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setHitzoneOverlayEnabled(checked);
+                    setHitzoneOverlay(targetsRef.current, checked);
+                  }}
+                />
+                Hitzone wireframe overlay
+              </label>
+              <p className="settingsHint">
+                Cyan wireframe = hull (broad-phase capture). Colored wireframe = actual body
+                geometry (what precision raycast tests). Gaps between them are misses.
+              </p>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={showDevOverlay}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setShowDevOverlay(checked);
+                    localStorage.setItem("fps-show-dev-overlay", String(checked));
+                  }}
+                />
+                Show dev overlay (HP buttons)
+              </label>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
                   checked={showFps}
                   onChange={(e) => {
                     const checked = e.target.checked;
@@ -1829,6 +2357,7 @@ export default function FpsGame() {
                 so you can align them over the artwork in real-time.
               </p>
             </SettingsSection>
+            </div>
           </div>
         </div>
       )}
@@ -2013,6 +2542,56 @@ export default function FpsGame() {
           />
         )}
       </div>
+      {targetTuneEnabled && (
+        <TargetPoseTunePanel
+          pose={targetPose}
+          onChange={(newPose) => {
+            setTargetPose(newPose);
+            if (targetApplyAll) {
+              for (const t of targetsRef.current) {
+                applyTargetPose(t, newPose);
+              }
+            } else if (selectedTargetRef.current) {
+              applyTargetPose(selectedTargetRef.current, newPose);
+            }
+          }}
+          applyToAll={targetApplyAll}
+          onApplyToAllChange={setTargetApplyAll}
+          onClose={() => {
+            setTargetTuneEnabled(false);
+            targetTuneEnabledRef.current = false;
+            selectedTargetRef.current = null;
+          }}
+        />
+      )}
+      {levelEditEnabled && selectedLevelObjectRef.current && (
+        <LevelObjectTunePanel
+          key={selectedLevelObjectRef.current.uuid}
+          mesh={selectedLevelObjectRef.current}
+          onCopyAll={() => {
+            const defs = levelObjectsRef.current.map((m) => {
+              const lo = m.userData.levelObject;
+              const def = { ...lo.def, x: parseFloat(m.position.x.toFixed(3)), z: parseFloat(m.position.z.toFixed(3)) };
+              const r = m.rotation.y;
+              const oU = m.material.map?.offset.x ?? 0;
+              const oV = m.material.map?.offset.y ?? 0;
+              if (r) def.rotationY = parseFloat(r.toFixed(4));
+              if (oU) def.textureOffsetU = parseFloat(oU.toFixed(4));
+              if (oV) def.textureOffsetV = parseFloat(oV.toFixed(4));
+              return def;
+            });
+            const text = JSON.stringify(defs, null, 2);
+            navigator.clipboard.writeText(text).catch(() => {});
+            console.log("All pillars:", text);
+          }}
+          onClose={() => {
+            const prev = selectedLevelObjectRef.current;
+            if (prev) prev.material.emissive?.setHex(0x000000);
+            selectedLevelObjectRef.current = null;
+            setSelectedLevelObjectVer((v) => v + 1);
+          }}
+        />
+      )}
       {weaponTuneEnabled && (
         <WeaponTunePanel
           poseMode={weaponPoseMode}
@@ -2069,16 +2648,72 @@ export default function FpsGame() {
             <span>HUD Position</span>
             <button type="button" className="hudTuneClose" onClick={() => setHudTuneEnabled(false)}>×</button>
           </div>
-          <fieldset className="hudPosGroup">
-            <legend>Settings</legend>
-            <label className="sliderRow"><span className="sliderLabel">X <output>{hudCogX}%</output></span>
-              <input type="range" min="0" max="20" step="0.5" value={hudCogX} onChange={(e) => setHudCogX(parseFloat(e.target.value))} /></label>
-            <label className="sliderRow"><span className="sliderLabel">Y <output>{hudCogY}%</output></span>
-              <input type="range" min="0" max="80" step="0.5" value={hudCogY} onChange={(e) => setHudCogY(parseFloat(e.target.value))} /></label>
-            <label className="sliderRow"><span className="sliderLabel">Size <output>{hudCogSize}%</output></span>
-              <input type="range" min="2" max="20" step="0.5" value={hudCogSize} onChange={(e) => setHudCogSize(parseFloat(e.target.value))} /></label>
-          </fieldset>
+          <div className="hudTuneBody">
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Rounds</span>
+              <label className="hudTuneRow">
+                <span>X</span>
+                <input type="range" min={10} max={50} step={0.5} value={hudRoundsX} onChange={(e) => setHudRoundsX(+e.target.value)} />
+                <span className="hudTuneVal">{hudRoundsX}%</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Y</span>
+                <input type="range" min={0} max={60} step={0.5} value={hudRoundsY} onChange={(e) => setHudRoundsY(+e.target.value)} />
+                <span className="hudTuneVal">{hudRoundsY}%</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Mag</span>
+              <label className="hudTuneRow">
+                <span>X</span>
+                <input type="range" min={30} max={70} step={0.5} value={hudMagX} onChange={(e) => setHudMagX(+e.target.value)} />
+                <span className="hudTuneVal">{hudMagX}%</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Y</span>
+                <input type="range" min={0} max={60} step={0.5} value={hudMagY} onChange={(e) => setHudMagY(+e.target.value)} />
+                <span className="hudTuneVal">{hudMagY}%</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Mags</span>
+              <label className="hudTuneRow">
+                <span>X</span>
+                <input type="range" min={50} max={90} step={0.5} value={hudMagsX} onChange={(e) => setHudMagsX(+e.target.value)} />
+                <span className="hudTuneVal">{hudMagsX}%</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Y</span>
+                <input type="range" min={0} max={60} step={0.5} value={hudMagsY} onChange={(e) => setHudMagsY(+e.target.value)} />
+                <span className="hudTuneVal">{hudMagsY}%</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Fire Mode</span>
+              <label className="hudTuneRow">
+                <span>Y</span>
+                <input type="range" min={0} max={40} step={0.5} value={hudFireModeY} onChange={(e) => setHudFireModeY(+e.target.value)} />
+                <span className="hudTuneVal">{hudFireModeY}%</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Values</span>
+              <label className="hudTuneRow">
+                <span>Size</span>
+                <input type="range" min={2} max={7} step={0.1} value={hudValueFont} onChange={(e) => setHudValueFont(+e.target.value)} />
+                <span className="hudTuneVal">{hudValueFont.toFixed(1)}vw</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Label↕</span>
+                <input type="range" min={-10} max={20} step={1} value={hudLabelY} onChange={(e) => setHudLabelY(+e.target.value)} />
+                <span className="hudTuneVal">{hudLabelY}px</span>
+              </label>
+            </div>
+          </div>
         </div>
+      )}
+      {pickupFlash && (
+        <PickupOverlay3D key={pickupFlash.ts} type={pickupFlash.type} />
       )}
       <div ref={crosshairRef} className="crosshair crosshairVisible" />
       <div
@@ -2087,6 +2722,18 @@ export default function FpsGame() {
         role="alertdialog"
         aria-live="assertive"
         aria-hidden="true"
+        onClick={() => {
+          const ds = deathStateRef.current;
+          if (ds && !ds.respawned && performance.now() >= ds.minDisplayEnd) {
+            respawnCallbackRef.current?.();
+            ds.respawned = true;
+            ds.fadeEndTime = performance.now() + DEATH_FADE_MS;
+            playerHealthRef.current = 100;
+            setPlayerHealth(100);
+            beginDeathOverlayFade(deathOverlayRef.current);
+          }
+          safeRequestPointerLock(canvasRef.current);
+        }}
       >
         <div className="deathOverlayInner">
           <h1 className="deathOverlayTitle">YOU DIED</h1>
@@ -2094,6 +2741,7 @@ export default function FpsGame() {
             ref={deathReasonRef}
             className="deathOverlayReason"
           />
+          <p className="deathOverlayHint">Click to respawn</p>
         </div>
       </div>
     </div>

@@ -15,6 +15,52 @@ body {
   color: #e8e8ec;
 }
 
+/* === Loading screen ========================================================= */
+
+.loadingOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.4rem;
+  background: #030406;
+  opacity: 1;
+  transition: opacity 0.6s ease;
+}
+
+.loadingDone {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loadingLogo {
+  max-width: min(720px, 85vw);
+  max-height: 65vh;
+  height: auto;
+}
+
+.loadingBarTrack {
+  width: min(320px, 60vw);
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(20, 22, 30, 0.9);
+  border: 1px solid rgba(94, 170, 255, 0.15);
+  overflow: hidden;
+}
+
+.loadingBarFill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgb(30,160,255) 0%, rgb(70,200,255) 45%, rgb(30,160,255) 100%);
+  box-shadow: 0 0 8px rgba(50, 170, 255, 0.6), inset 0 1px 0 rgba(255,255,255,0.2);
+  transition: width 0.4s ease;
+}
+
+/* =========================================================================== */
+
 .gameRoot {
   position: fixed;
   inset: 0;
@@ -107,9 +153,9 @@ body {
 
 /* Section positions driven by CSS custom properties so they can be
  * live-tuned from the Settings modal sliders. */
-.hudAmmoStatLeft   { left: var(--hud-rounds-x, 33%);  top: var(--hud-rounds-y, 14%); }
-.hudAmmoStatCenter { left: var(--hud-mag-x, 50%);      top: var(--hud-mag-y, 14%); }
-.hudAmmoStatRight  { left: var(--hud-mags-x, 67%);     top: var(--hud-mags-y, 14%); }
+.hudAmmoStatLeft   { left: var(--hud-rounds-x, 33%);  top: var(--hud-rounds-y, 10%); }
+.hudAmmoStatCenter { left: var(--hud-mag-x, 50%);      top: var(--hud-mag-y, 10%); }
+.hudAmmoStatRight  { left: var(--hud-mags-x, 67%);     top: var(--hud-mags-y, 10%); }
 
 .hudAmmoLow .hudAmmoLabel,
 .hudAmmoLow .hudAmmoValue {
@@ -317,6 +363,46 @@ body {
   z-index: 6;
   overflow: hidden;
   transition: width 3s ease;
+}
+
+/* === Mission info — compact strip below health bar ======================== */
+.hudMissionInfo {
+  position: fixed;
+  top: calc(1rem + min(5rem, 8vw) + 0.4rem);
+  right: 1rem;
+  z-index: 15;
+  text-align: right;
+  pointer-events: none;
+  font-family: var(--font-futuristic), "Orbitron", "Eurostile", "Rajdhani", sans-serif;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hudMissionObjective {
+  font-size: clamp(0.5rem, 1vw, 0.72rem);
+  font-weight: 700;
+  color: rgba(94, 170, 255, 0.85);
+  text-shadow: 0 0 8px rgba(59, 123, 255, 0.5);
+  margin-bottom: 0.2em;
+}
+
+.hudMissionStats {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1.5em;
+}
+
+.hudMissionStat {
+  font-size: clamp(0.42rem, 0.85vw, 0.62rem);
+  font-weight: 500;
+  color: rgba(94, 170, 255, 0.6);
+  text-shadow: 0 0 6px rgba(59, 123, 255, 0.3);
+}
+
+.hudMissionStat strong {
+  font-weight: 700;
+  color: rgba(94, 170, 255, 0.9);
+  font-variant-numeric: tabular-nums;
 }
 
 .hudDamageVignette {
@@ -574,16 +660,14 @@ body {
 }
 
 .settingsModal {
-  width: min(22rem, calc(100vw - 2rem));
-  max-height: min(90vh, 40rem);
-  overflow-y: auto;
-  padding: 1rem;
+  width: min(36rem, calc(100vw - 3rem));
+  max-height: calc(100vh - 3rem);
   border-radius: 12px;
   background: rgba(18, 18, 24, 0.96);
   border: 1px solid #3a3a48;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  overflow: hidden;
 }
 
 .settingsHeader {
@@ -591,10 +675,13 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #3a3a48;
+  flex-shrink: 0;
 }
 
 .settingsHeader h2 {
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 600;
 }
 
@@ -611,6 +698,33 @@ body {
 
 .settingsClose:hover {
   background: #2e2e38;
+}
+
+.settingsBody {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.75rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.settingsBody::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settingsBody::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settingsBody::-webkit-scrollbar-thumb {
+  background: rgba(120, 120, 140, 0.4);
+  border-radius: 3px;
+}
+
+.settingsBody::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 120, 140, 0.6);
 }
 
 .settingsGroup {
@@ -664,7 +778,6 @@ body {
   border: 1px solid #3a3a48;
   border-radius: 8px;
   background: rgba(34, 34, 40, 0.45);
-  overflow: hidden;
 }
 
 .hudTunePanel {
@@ -726,6 +839,60 @@ body {
 .hudTunePanel .sliderLabel {
   font-size: 0.72rem;
   min-width: 4rem;
+}
+
+.hudTuneBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.hudTuneGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  border: 1px solid #2e2e3a;
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem 0.35rem;
+}
+
+.hudTuneGroupLabel {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #9898a8;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hudTuneRow {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: #c8c8d2;
+  cursor: default;
+}
+
+.hudTuneRow span:first-child {
+  min-width: 2.4rem;
+  font-weight: 500;
+}
+
+.hudTuneRow input[type="range"] {
+  flex: 1;
+  height: 4px;
+  accent-color: #5eaaff;
+  cursor: pointer;
+}
+
+.hudTuneVal {
+  min-width: 3rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.68rem;
+  color: #9898a8;
 }
 
 .settingsSectionHeader,
@@ -944,20 +1111,69 @@ body {
   filter: drop-shadow(0 0 3px rgba(94, 170, 255, 0.6));
 }
 
-.hudCompassDots {
+/* === Radar — top left ===================================================== */
+.hudRadar {
+  position: fixed;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 15;
+  width: min(11rem, 22vw);
+  height: min(11rem, 22vw);
+  pointer-events: none;
+}
+
+.radarRing {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: url("/ui/radar_hud.png") center / contain no-repeat;
+  overflow: hidden;
+}
+
+.radarInner {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.radarSweepCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.radarDots {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
 
-.hudCompassDot {
+.radarBlip {
   position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(255, 200, 160) 0%, rgb(255, 100, 40) 35%, rgb(255, 40, 10) 65%, rgba(220, 0, 0, 0.7) 100%);
+  box-shadow:
+    0 0 4px rgba(255, 80, 30, 1),
+    0 0 12px rgba(255, 50, 20, 1),
+    0 0 22px rgba(255, 30, 10, 0.6);
+  transition: opacity 0.3s ease;
+}
+
+.radarCenter {
+  position: absolute;
+  top: 50%; left: 50%;
   width: 5px;
   height: 5px;
   margin: -2.5px 0 0 -2.5px;
   border-radius: 50%;
-  background: rgb(220, 40, 30);
-  box-shadow: 0 0 4px rgba(220, 40, 30, 0.8), 0 0 8px rgba(220, 40, 30, 0.4);
+  background: rgba(120, 200, 255, 0.9);
+  box-shadow: 0 0 5px rgba(94, 170, 255, 0.8);
 }
 
 .hudCompassBearing {
@@ -1014,10 +1230,13 @@ body {
 
 .deathOverlay.deathOverlayActive {
   opacity: 1;
+  pointer-events: auto;
+  cursor: pointer;
   transition: opacity 200ms ease-in;
 }
 
 .deathOverlay.deathOverlayFading {
+  pointer-events: none;
   animation: deathOverlayFadeOut 1.2s ease-out forwards;
 }
 
@@ -1057,6 +1276,24 @@ body {
   opacity: 0.9;
 }
 
+.deathOverlayHint {
+  font-family: var(--font-futuristic), "Orbitron", "Eurostile", "Rajdhani",
+    system-ui, sans-serif;
+  font-size: clamp(0.6rem, 0.8vw, 0.75rem);
+  font-weight: 400;
+  color: #a09880;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin: 2.5rem 0 0 0;
+  opacity: 0;
+  animation: deathHintFadeIn 0.6s ease-out 0.8s forwards;
+}
+
+@keyframes deathHintFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 0.75; transform: translateY(0); }
+}
+
 @keyframes deathOverlayFadeOut {
   from {
     opacity: 1;
@@ -1064,6 +1301,51 @@ body {
   to {
     opacity: 0;
   }
+}
+
+/* ── Pickup overlay (power pack collect) ─────────────────────────── */
+.pickupOverlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) translateY(60vh) scale(0.4);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 80;
+  transition: opacity 0.3s ease-out, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pickupOverlay--visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) translateY(0) scale(1);
+}
+
+.pickupOverlay--exit {
+  opacity: 0;
+  transform: translate(-50%, -50%) translateY(0) scale(1.1);
+  transition: opacity 0.4s ease-in, transform 0.4s ease-in;
+}
+
+.pickupOverlayImg {
+  width: clamp(200px, 32vw, 460px);
+  height: auto;
+}
+
+.pickupOverlay3DLabel {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: clamp(18px, 3vw, 32px);
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 0 12px rgba(60, 180, 255, 0.8), 0 2px 6px rgba(0,0,0,0.7);
+  text-align: center;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.pickupOverlay3DCanvas canvas {
+  display: block;
+  margin: 0 auto;
 }
 
 .crosshairVisible {
