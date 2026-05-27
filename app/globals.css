@@ -3,6 +3,10 @@
   padding: 0;
   box-sizing: border-box;
   outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html,
@@ -1346,6 +1350,58 @@ body {
 .pickupOverlay3DCanvas canvas {
   display: block;
   margin: 0 auto;
+}
+
+.hudSecondary {
+  position: fixed;
+  bottom: 1.2rem;
+  right: 1.5rem;
+  z-index: 15;
+  display: flex;
+  gap: 0.8rem;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.hudSecondaryItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.4rem 0.7rem;
+  border-radius: 6px;
+  background: rgba(12, 12, 18, 0.75);
+  border: 1px solid rgba(90, 170, 255, 0.25);
+  backdrop-filter: blur(6px);
+  min-width: 52px;
+}
+
+.hudSecondaryCount {
+  font-family: var(--font-futuristic), "Orbitron", "Eurostile", "Rajdhani", sans-serif;
+  font-size: clamp(1.4rem, 3.2vw, 2.4rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: rgba(94, 170, 255, 0.75);
+  text-shadow: 0 0 10px rgba(59, 123, 255, 0.6);
+}
+
+.hudSecondaryLabel {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: rgba(160, 190, 220, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-top: 2px;
+}
+
+.hudSecondaryEmpty .hudSecondaryCount {
+  color: rgb(230, 50, 30);
+  text-shadow: 0 0 10px rgba(230, 50, 30, 0.7);
+}
+
+.hudSecondaryEmpty {
+  border-color: rgba(255, 60, 60, 0.3);
 }
 
 .crosshairVisible {

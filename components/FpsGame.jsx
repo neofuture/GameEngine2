@@ -47,6 +47,15 @@ import {
   getGeometry as getCrateGeo, getMaterials as getCrateMats,
 } from "@/lib/AmmoCrate";
 import {
+  spawnGrenade, updateGrenades, disposeAllGrenades,
+  updateTrajectoryPreview, hideTrajectoryPreview, disposePreview,
+  applyScreenShake, triggerScreenShake,
+  getGrenadeParams, setGrenadeParams,
+  spawnGrenadeDrop, updateGrenadeDrops, disposeAllGrenadeDrops,
+  getGrenadeModel, disposeGrenadeModel,
+  getLatheRadii, setLatheRadii,
+} from "@/lib/Grenade";
+import {
   applyTargetHit,
   applyTargetPose,
   activateTargetAt,
@@ -251,16 +260,19 @@ function safeExitPointerLock() {
 
 const PICKUP_DISPLAY_MS = 2000;
 
-function PickupOverlay3D({ type }) {
+function PickupOverlay3D({ type, onDone }) {
   const containerRef = useRef(null);
   const [phase, setPhase] = useState("enter");
 
+  const [gone, setGone] = useState(false);
   useEffect(() => {
     const frameId = requestAnimationFrame(() => setPhase("visible"));
     const hideTimer = setTimeout(() => setPhase("exit"), PICKUP_DISPLAY_MS);
+    const removeTimer = setTimeout(() => { setGone(true); onDone?.(); }, PICKUP_DISPLAY_MS + 500);
     return () => {
       cancelAnimationFrame(frameId);
       clearTimeout(hideTimer);
+      clearTimeout(removeTimer);
     };
   }, []);
 
@@ -289,6 +301,10 @@ function PickupOverlay3D({ type }) {
     if (type === "ammo") {
       mesh = new THREE.Mesh(getCrateGeo(), getCrateMats());
       mesh.scale.setScalar(0.25);
+    } else if (type === "grenade") {
+      mesh = getGrenadeModel();
+      mesh.scale.setScalar(0.8);
+      mesh.rotation.x = Math.PI / 2;
     } else {
       mesh = new THREE.Mesh(getOrbGeometry(), getOrbMaterials());
       mesh.rotation.z = Math.PI / 2;
@@ -320,7 +336,8 @@ function PickupOverlay3D({ type }) {
       if (!running) return;
       requestAnimationFrame(animate);
       t += 1 / 60;
-      mesh.rotation.y += 0.008;
+      if (type === "grenade") mesh.rotation.z -= 0.008;
+      else mesh.rotation.y += 0.008;
 
       const zoomT = Math.min(1, t / zoomDuration);
       const ease = 1 - Math.pow(1 - zoomT, 3);
@@ -338,8 +355,9 @@ function PickupOverlay3D({ type }) {
     };
   }, [type]);
 
-  const label = type === "ammo" ? "10 Ammo Rounds" : "10 Hit Points";
+  const label = type === "ammo" ? "10 Ammo Rounds" : type === "grenade" ? "+1 Grenade" : "10 Hit Points";
 
+  if (gone) return null;
   return (
     <div className={`pickupOverlay pickupOverlay--${phase}`} aria-hidden="true">
       <div className="pickupOverlay3DLabel">{label}</div>
@@ -362,6 +380,7 @@ export default function FpsGame() {
   /** Non-null while a death sequence is playing. The player stays frozen
    *  until they click to respawn. Input/physics/weapon are gated on this. */
   const deathStateRef = useRef(null);
+  const grenadeSuicideRef = useRef(false);
   /** Callback set by the game loop to trigger a respawn from outside the
    *  effect (e.g. the overlay's onClick handler). */
   const respawnCallbackRef = useRef(null);
@@ -449,6 +468,7 @@ export default function FpsGame() {
   const [selectedLevelObjectVer, setSelectedLevelObjectVer] = useState(0);
   const levelObjectsRef = useRef([]);
   const sceneRef = useRef(null);
+  const displayGrenadeRef = useRef(null);
   const [bindings, setBindings] = useState(() => loadBindings());
   const [rebindAction, setRebindAction] = useState(null);
   const bindingsRef = useRef(loadBindings());
@@ -506,6 +526,15 @@ export default function FpsGame() {
   const [spareMags, setSpareMags] = useState(SPARE_MAGAZINES);
   const [playerHealth, setPlayerHealth] = useState(100);
   const [pickupFlash, setPickupFlash] = useState(null);
+  const [grenadeCount, setGrenadeCount] = useState(3);
+  const grenadeCountRef = useRef(3);
+  const [grenadeTuneEnabled, setGrenadeTuneEnabled] = useState(false);
+  const [grenadeParams, setGrenadeParamsState] = useState(() => getGrenadeParams());
+  const [latheTuneEnabled, setLatheTuneEnabled] = useState(false);
+  const [latheRadii, setLatheRadiiState] = useState(() => getLatheRadii());
+  useEffect(() => { setLatheRadiiState(getLatheRadii()); }, []);
+  const [displayGrenadeY, setDisplayGrenadeY] = useState(1.4);
+  const latheScrollRef = useRef(null);
   const [playerLives, setPlayerLives] = useState(3);
   const [hostileCount, setHostileCount] = useState(0);
   const [missionTime, setMissionTime] = useState(0);
@@ -672,6 +701,9 @@ export default function FpsGame() {
     let bulletPool = null;
     let bullets = [];
     let gameReady = false;
+    let healthRegenTimer = 0;
+    const HEALTH_REGEN_INTERVAL = 15;
+    const HEALTH_REGEN_AMOUNT = 1;
     let onCanvasClick = null;
     let onPointerLockChange = null;
     let onKeyDown = null;
@@ -949,6 +981,9 @@ export default function FpsGame() {
       bullets = [];
       const hpOrbs = [];
       const ammoDrops = [];
+      const grenades = [];
+      const grenadeDrops = [];
+      let grenadeHeld = false;
       const allColliders = [...level.colliders, ...level.stairColliders];
       let _lastHostileCount = -1;
       let _radarFrameSkip = 0;
@@ -990,22 +1025,37 @@ export default function FpsGame() {
           const deathPos = hit.object.position.clone();
           const rndAngle = Math.random() * Math.PI * 2;
           const rndOff = 0.3 + Math.random() * 0.5;
-          const hpDelay = 800 + Math.random() * 400;   // ~1s
-          const ammoDelay = 1800 + Math.random() * 400; // ~2s
-          setTimeout(() => {
-            hpOrbs.push(spawnHpOrb(scene, new THREE.Vector3(
-              deathPos.x + Math.cos(rndAngle) * rndOff,
-              deathPos.y,
-              deathPos.z + Math.sin(rndAngle) * rndOff,
-            ), level.floorY));
-          }, hpDelay);
-          setTimeout(() => {
-            ammoDrops.push(spawnAmmoDrop(scene, new THREE.Vector3(
-              deathPos.x + Math.cos(rndAngle + Math.PI) * rndOff,
-              deathPos.y,
-              deathPos.z + Math.sin(rndAngle + Math.PI) * rndOff,
-            ), level.floorY));
-          }, ammoDelay);
+          const hpDelay = 800 + Math.random() * 400;
+          const ammoDelay = 1800 + Math.random() * 400;
+          if (zone === "head" || playerHealthRef.current < 50) {
+            setTimeout(() => {
+              hpOrbs.push(spawnHpOrb(scene, new THREE.Vector3(
+                deathPos.x + Math.cos(rndAngle) * rndOff,
+                deathPos.y,
+                deathPos.z + Math.sin(rndAngle) * rndOff,
+              ), level.floorY));
+            }, hpDelay);
+          }
+          if (spareMagsRef.current <= 1) {
+            setTimeout(() => {
+              ammoDrops.push(spawnAmmoDrop(scene, new THREE.Vector3(
+                deathPos.x + Math.cos(rndAngle + Math.PI) * rndOff,
+                deathPos.y,
+                deathPos.z + Math.sin(rndAngle + Math.PI) * rndOff,
+              ), level.floorY));
+            }, ammoDelay);
+          }
+          if (grenadeCountRef.current === 0 && Math.random() < 0.1) {
+            const grenDelay = 2200 + Math.random() * 500;
+            const grenAngle = rndAngle + Math.PI * 0.5;
+            setTimeout(() => {
+              grenadeDrops.push(spawnGrenadeDrop(scene, new THREE.Vector3(
+                deathPos.x + Math.cos(grenAngle) * rndOff,
+                deathPos.y,
+                deathPos.z + Math.sin(grenAngle) * rndOff,
+              ), level.floorY));
+            }, grenDelay);
+          }
           startDeathAnimation(hit.object, bulletDirection, {
             scene,
             colliders: allColliders,
@@ -1015,6 +1065,48 @@ export default function FpsGame() {
             hitPoint: hit.point,
           });
         }
+      }
+
+      function applyGrenadeHit(mesh, hitPoint, blastDir, damage) {
+        const ud = mesh.userData;
+        if (ud.health <= 0) return { killed: false };
+        ud.health = Math.max(0, ud.health - damage);
+        ud.repairCooldown = ud.repairDelayAfterHit ?? 3;
+        const ratio = ud.health / ud.maxHealth;
+        const killed = ud.health <= 0;
+        if (killed) {
+          const deathPos = mesh.position.clone();
+          const rndAngle = Math.random() * Math.PI * 2;
+          const rndOff = 0.3 + Math.random() * 0.5;
+          const hpDelay = 800 + Math.random() * 400;
+          const ammoDelay = 1800 + Math.random() * 400;
+          // Grenade kill: always drop HP orb. Otherwise only if under 50%
+          setTimeout(() => {
+            hpOrbs.push(spawnHpOrb(scene, new THREE.Vector3(
+              deathPos.x + Math.cos(rndAngle) * rndOff, deathPos.y,
+              deathPos.z + Math.sin(rndAngle) * rndOff,
+            ), level.floorY));
+          }, hpDelay);
+          if (spareMagsRef.current <= 1) {
+            setTimeout(() => {
+              ammoDrops.push(spawnAmmoDrop(scene, new THREE.Vector3(
+                deathPos.x + Math.cos(rndAngle + Math.PI) * rndOff, deathPos.y,
+                deathPos.z + Math.sin(rndAngle + Math.PI) * rndOff,
+              ), level.floorY));
+            }, ammoDelay);
+          }
+          if (grenadeCountRef.current === 0 && Math.random() < 0.1) {
+            const grenDelay = 2200 + Math.random() * 500;
+            const grenAngle = rndAngle + Math.PI * 0.5;
+            setTimeout(() => {
+              grenadeDrops.push(spawnGrenadeDrop(scene, new THREE.Vector3(
+                deathPos.x + Math.cos(grenAngle) * rndOff, deathPos.y,
+                deathPos.z + Math.sin(grenAngle) * rndOff,
+              ), level.floorY));
+            }, grenDelay);
+          }
+        }
+        return { killed, health: ud.health, ratio };
       }
 
       function removeBullet(index) {
@@ -1221,6 +1313,8 @@ export default function FpsGame() {
               deathState.respawned = true;
               playerHealthRef.current = 100;
               setPlayerHealth(100);
+              grenadeCountRef.current = getGrenadeParams().grenadeCount;
+              setGrenadeCount(grenadeCountRef.current);
               deathState.fadeEndTime = now + DEATH_FADE_MS;
               beginDeathOverlayFade(deathOverlayRef.current);
             }
@@ -1272,7 +1366,10 @@ export default function FpsGame() {
             !deathStateRef.current &&
             playerHealthRef.current <= 0
           ) {
-            const reason = "You were killed by an enemy";
+            const reason = grenadeSuicideRef.current
+              ? "Suicide is never the answer"
+              : "You were killed by an enemy";
+            grenadeSuicideRef.current = false;
             playerLivesRef.current = Math.max(0, playerLivesRef.current - 1);
             setPlayerLives(playerLivesRef.current);
             playerHealthRef.current = 0;
@@ -1386,6 +1483,41 @@ export default function FpsGame() {
             const fade = angleDiff < Math.PI ? Math.max(0, 1 - angleDiff / Math.PI) : 0;
             dot.style.opacity = Math.max(0.15, fade);
           }
+
+          // Reward dots (blue) for HP orbs, ammo drops, grenade drops
+          const allDrops = [...hpOrbs, ...ammoDrops, ...grenadeDrops]
+            .filter(d => !d.collected && d.mesh?.position);
+          let rewardContainer = container.parentElement.querySelector(".radarRewardDots");
+          if (!rewardContainer) {
+            rewardContainer = document.createElement("div");
+            rewardContainer.className = "radarRewardDots";
+            rewardContainer.style.cssText = "position:absolute;inset:0;pointer-events:none";
+            container.parentElement.appendChild(rewardContainer);
+          }
+          while (rewardContainer.children.length > allDrops.length) rewardContainer.lastChild.remove();
+          while (rewardContainer.children.length < allDrops.length) {
+            const dot = document.createElement("div");
+            dot.style.cssText = "position:absolute;width:5px;height:5px;border-radius:50%;background:#3af;box-shadow:0 0 4px #3af;transform:translate(-50%,-50%)";
+            rewardContainer.appendChild(dot);
+          }
+          for (let i = 0; i < allDrops.length; i++) {
+            const d = allDrops[i];
+            const dx = d.mesh.position.x - px;
+            const dz = d.mesh.position.z - pz;
+            if (dx * dx + dz * dz > RADAR_RANGE * RADAR_RANGE) {
+              rewardContainer.children[i].style.opacity = "0";
+              continue;
+            }
+            const angle = Math.atan2(dx, -dz) + yaw;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            const r = (dist / RADAR_RANGE) * 44;
+            const dotX = 50 + Math.sin(angle) * r;
+            const dotY = 50 - Math.cos(angle) * r;
+            const rdot = rewardContainer.children[i];
+            rdot.style.left = `${dotX}%`;
+            rdot.style.top = `${dotY}%`;
+            rdot.style.opacity = "0.85";
+          }
         }
         camera.updateMatrixWorld(true);
 
@@ -1450,6 +1582,25 @@ export default function FpsGame() {
           setFireMode(next);
         }
 
+        // Grenade: hold G to preview, release to throw
+        const gDown = isBindingDown(input, bindingsRef.current, "grenade");
+        if (gDown && !grenadeHeld && !frozen) {
+          grenadeHeld = true;
+        }
+        if (grenadeHeld && gDown && !frozen) {
+          updateTrajectoryPreview(scene, camera, level.floorY, allColliders, level.bounds);
+        }
+        if (grenadeHeld && !gDown) {
+          grenadeHeld = false;
+          hideTrajectoryPreview();
+          if (!frozen && grenadeCountRef.current > 0) {
+            grenadeCountRef.current--;
+            setGrenadeCount(grenadeCountRef.current);
+            const g = spawnGrenade(scene, camera, level.floorY, allColliders, level.bounds);
+            grenades.push(g);
+          }
+        }
+
         const dnTarget = dayNightTargetNightnessRef.current;
         let dnCur = dayNightCurNightnessRef.current;
         if (dnCur !== dnTarget) {
@@ -1463,6 +1614,42 @@ export default function FpsGame() {
         }
 
         updateBullets(dt);
+
+        const preDetonated = new Set(grenades.filter(g => g.detonated).map(g => g));
+        updateGrenades(grenades, dt, scene, getLiveTargets, applyGrenadeHit,
+          (mesh, blastDir, opts) => {
+            startDeathAnimation(mesh, blastDir, opts);
+          },
+          { scene, colliders: allColliders, floorY: level.floorY, bounds: level.bounds },
+        );
+        for (const g of grenades) {
+          if (g.detonated && !preDetonated.has(g) && g.explosionPos) {
+            triggerScreenShake(camera.position, g.explosionPos);
+            const distToPlayer = camera.position.distanceTo(g.explosionPos);
+            if (distToPlayer < getGrenadeParams().blastRadius) {
+              const hp = playerHealthRef.current;
+              const newHp = Math.max(0, hp - 60);
+              playerHealthRef.current = newHp;
+              setPlayerHealth(newHp);
+              if (newHp <= 0) grenadeSuicideRef.current = true;
+            }
+          }
+        }
+        applyScreenShake(camera, dt);
+
+        // Health auto-regen: 1 HP every 15 seconds
+        if (playerHealthRef.current > 0 && playerHealthRef.current < 100) {
+          healthRegenTimer += dt;
+          if (healthRegenTimer >= HEALTH_REGEN_INTERVAL) {
+            healthRegenTimer -= HEALTH_REGEN_INTERVAL;
+            const newHp = Math.min(100, playerHealthRef.current + HEALTH_REGEN_AMOUNT);
+            playerHealthRef.current = newHp;
+            setPlayerHealth(newHp);
+          }
+        } else {
+          healthRegenTimer = 0;
+        }
+
         updateTargetsRepair(level.targets, dt);
         updateTargetHealthBars(level.targets, dt, camera);
         updateHitDebugMarkers(dt);
@@ -1475,6 +1662,8 @@ export default function FpsGame() {
           bounds: level.bounds,
         });
 
+
+        if (displayGrenadeRef.current) displayGrenadeRef.current.rotation.y += dt * 0.8;
 
         updateHpOrbs(
           hpOrbs, dt, camera.position,
@@ -1494,6 +1683,17 @@ export default function FpsGame() {
             roundsInMagRef.current += value;
             syncAmmoToUi();
             setPickupFlash({ type: "ammo", ts: Date.now() });
+          },
+          allColliders,
+          level.bounds,
+        );
+
+        updateGrenadeDrops(
+          grenadeDrops, dt, camera.position,
+          (value) => {
+            grenadeCountRef.current += value;
+            setGrenadeCount(grenadeCountRef.current);
+            setPickupFlash({ type: "grenade", ts: Date.now() });
           },
           allColliders,
           level.bounds,
@@ -1585,6 +1785,10 @@ export default function FpsGame() {
             return next;
           });
         }
+        if (e.code === "F8" && !e.repeat) {
+          e.preventDefault();
+          setLatheTuneEnabled(prev => !prev);
+        }
       };
       onResize = () => {
         const w = window.innerWidth;
@@ -1631,6 +1835,8 @@ export default function FpsGame() {
         console.error("Sky dome failed to load:", err);
       }
 
+      // Display grenade removed — use lathe tuner (F8) if needed
+
       gameReady = true;
       setLoadProgress(100);
       rafId = requestAnimationFrame(animate);
@@ -1670,6 +1876,9 @@ export default function FpsGame() {
         if (d.ownMats) for (const m of d.mesh.material) m.dispose();
       }
       ammoDrops.length = 0;
+      disposeAllGrenades(grenades, scene);
+      disposeAllGrenadeDrops(grenadeDrops);
+      disposePreview();
       setHealthBarOccluders(null);
       levelTextures?.dispose();
       levelTextures = null;
@@ -2712,9 +2921,182 @@ export default function FpsGame() {
           </div>
         </div>
       )}
-      {pickupFlash && (
-        <PickupOverlay3D key={pickupFlash.ts} type={pickupFlash.type} />
+      {grenadeTuneEnabled && (
+        <div className="hudTunePanel" style={{
+            left: 0, right: 0, bottom: 0, top: "auto",
+            width: "100%", maxWidth: "100%",
+            zIndex: 999, borderRadius: 0, padding: "4px 8px",
+          }}
+          onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+          <div className="hudTuneHeader">
+            <span>Grenade Tuning</span>
+            <button type="button" className="hudTuneClose" onClick={() => setGrenadeTuneEnabled(false)}>×</button>
+          </div>
+          <div className="hudTuneBody" style={{ display: "flex", gap: 8, flexWrap: "nowrap" }}>
+            <div className="hudTuneGroup" style={{ flex: "1 1 0", minWidth: 0 }}>
+              <span className="hudTuneGroupLabel">Throw</span>
+              <label className="hudTuneRow">
+                <span>Speed</span>
+                <input type="range" min={4} max={30} step={0.5}
+                  value={grenadeParams.throwSpeed}
+                  onChange={(e) => { const p = { ...grenadeParams, throwSpeed: +e.target.value }; setGrenadeParams(p); setGrenadeParamsState(p); }} />
+                <span className="hudTuneVal">{grenadeParams.throwSpeed.toFixed(1)}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Loft</span>
+                <input type="range" min={0} max={60} step={1}
+                  value={grenadeParams.loftAngle}
+                  onChange={(e) => { const p = { ...grenadeParams, loftAngle: +e.target.value }; setGrenadeParams(p); setGrenadeParamsState(p); }} />
+                <span className="hudTuneVal">{grenadeParams.loftAngle}°</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Gravity</span>
+                <input type="range" min={4} max={20} step={0.1}
+                  value={grenadeParams.gravity}
+                  onChange={(e) => { const p = { ...grenadeParams, gravity: +e.target.value }; setGrenadeParams(p); setGrenadeParamsState(p); }} />
+                <span className="hudTuneVal">{grenadeParams.gravity.toFixed(1)}</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup" style={{ flex: "1 1 0", minWidth: 0 }}>
+              <span className="hudTuneGroupLabel">Bounce</span>
+              <label className="hudTuneRow">
+                <span>Restitution</span>
+                <input type="range" min={0} max={0.9} step={0.01}
+                  value={grenadeParams.bounceRestitution}
+                  onChange={(e) => { const p = { ...grenadeParams, bounceRestitution: +e.target.value }; setGrenadeParams(p); setGrenadeParamsState(p); }} />
+                <span className="hudTuneVal">{grenadeParams.bounceRestitution.toFixed(2)}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Friction</span>
+                <input type="range" min={0} max={1} step={0.01}
+                  value={grenadeParams.bounceFriction}
+                  onChange={(e) => { const p = { ...grenadeParams, bounceFriction: +e.target.value }; setGrenadeParams(p); setGrenadeParamsState(p); }} />
+                <span className="hudTuneVal">{grenadeParams.bounceFriction.toFixed(2)}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Fuse</span>
+                <input type="range" min={0.5} max={6} step={0.1}
+                  value={grenadeParams.fuseTime}
+                  onChange={(e) => { const p = { ...grenadeParams, fuseTime: +e.target.value }; setGrenadeParams(p); setGrenadeParamsState(p); }} />
+                <span className="hudTuneVal">{grenadeParams.fuseTime.toFixed(1)}s</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup" style={{ flex: "1 1 0", minWidth: 0 }}>
+              <span className="hudTuneGroupLabel">Blast</span>
+              <label className="hudTuneRow">
+                <span>Radius</span>
+                <input type="range" min={1} max={15} step={0.5}
+                  value={grenadeParams.blastRadius}
+                  onChange={(e) => { const p = { ...grenadeParams, blastRadius: +e.target.value }; setGrenadeParams(p); setGrenadeParamsState(p); }} />
+                <span className="hudTuneVal">{grenadeParams.blastRadius.toFixed(1)}m</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Damage</span>
+                <input type="range" min={10} max={300} step={5}
+                  value={grenadeParams.maxDamage}
+                  onChange={(e) => { const p = { ...grenadeParams, maxDamage: +e.target.value }; setGrenadeParams(p); setGrenadeParamsState(p); }} />
+                <span className="hudTuneVal">{grenadeParams.maxDamage}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Falloff</span>
+                <input type="range" min={0.5} max={3} step={0.1}
+                  value={grenadeParams.falloffPower}
+                  onChange={(e) => { const p = { ...grenadeParams, falloffPower: +e.target.value }; setGrenadeParams(p); setGrenadeParamsState(p); }} />
+                <span className="hudTuneVal">{grenadeParams.falloffPower.toFixed(1)}</span>
+              </label>
+            </div>
+          </div>
+        </div>
       )}
+      {latheTuneEnabled && (
+        <div className="hudTunePanel" style={{
+            position: "fixed", left: 8, top: 40, bottom: 40, right: "auto",
+            width: 280, overflow: "hidden",
+            zIndex: 1000, padding: "4px 8px",
+            display: "flex", flexDirection: "column",
+          }}
+          onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+          <div className="hudTuneHeader">
+            <span>Lathe Profile (45 pts)</span>
+            <button type="button" style={{ marginLeft: "auto", marginRight: 8, fontSize: 10, padding: "2px 6px", cursor: "pointer" }}
+              onClick={() => {
+                const txt = latheRadii.map((v, i) => `${i}: ${v.toFixed(2)}`).join("\n");
+                const arr = `[${latheRadii.map(v => v.toFixed(2)).join(", ")}]`;
+                navigator.clipboard.writeText(arr).then(() => {
+                  alert("Copied to clipboard!");
+                });
+              }}>Copy</button>
+            <button type="button" className="hudTuneClose" onClick={() => setLatheTuneEnabled(false)}>×</button>
+          </div>
+          <div ref={latheScrollRef} className="hudTuneBody" style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", flex: 1 }}>
+            {latheRadii.map((val, idx) => (
+              <label key={idx} className="hudTuneRow" style={{ fontSize: 10 }}>
+                <span style={{ minWidth: 28, textAlign: "right" }}>#{idx}</span>
+                <input type="range" min={0.01} max={1.5} step={0.01}
+                  value={val}
+                  onChange={(e) => {
+                    const scrollY = latheScrollRef.current?.scrollTop ?? 0;
+                    const next = [...latheRadii];
+                    next[idx] = +e.target.value;
+                    setLatheRadii(next);
+                    setLatheRadiiState(next);
+                    requestAnimationFrame(() => {
+                      if (latheScrollRef.current) latheScrollRef.current.scrollTop = scrollY;
+                    });
+                    const old = displayGrenadeRef.current;
+                    if (old) {
+                      const pos = old.position.clone();
+                      const rot = old.rotation.y;
+                      const sc = old.scale.x;
+                      old.parent?.remove(old);
+                      disposeGrenadeModel(old);
+                      const fresh = getGrenadeModel();
+                      fresh.scale.setScalar(sc);
+                      fresh.position.copy(pos);
+                      fresh.rotation.y = rot;
+                      sceneRef.current?.add(fresh);
+                      displayGrenadeRef.current = fresh;
+                    }
+                  }} />
+                <span className="hudTuneVal" style={{ minWidth: 32 }}>{val.toFixed(2)}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+      {latheTuneEnabled && (
+        <div style={{
+            position: "fixed", right: 16, top: "50%", transform: "translateY(-50%)",
+            zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "center",
+            background: "rgba(0,0,0,0.6)", borderRadius: 6, padding: "8px 6px",
+          }}
+          onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+          <span style={{ color: "#fff", fontSize: 9, marginBottom: 4 }}>Y Pos</span>
+          <input type="range" min={0.5} max={2.0} step={0.01}
+            value={displayGrenadeY}
+            style={{ writingMode: "vertical-lr", direction: "rtl", height: 200 }}
+            onChange={(e) => {
+              const y = +e.target.value;
+              setDisplayGrenadeY(y);
+              const g = displayGrenadeRef.current;
+              if (g) g.position.y = y;
+            }} />
+          <span style={{ color: "#fff", fontSize: 10, marginTop: 4 }}>{displayGrenadeY.toFixed(2)}</span>
+        </div>
+      )}
+      {pickupFlash && (
+        <PickupOverlay3D key={pickupFlash.ts} type={pickupFlash.type}
+          onDone={() => setPickupFlash(null)} />
+      )}
+      <div className="hudSecondary"
+        onClick={() => setGrenadeTuneEnabled(prev => !prev)}
+        onContextMenu={(e) => { e.preventDefault(); setLatheTuneEnabled(prev => !prev); }}>
+        <div className={`hudSecondaryItem${grenadeCount === 0 ? " hudSecondaryEmpty" : ""}`}>
+          <span className="hudSecondaryCount">{String(grenadeCount).padStart(2, "0")}</span>
+          <span className="hudSecondaryLabel">GRENADES</span>
+          <span style={{ fontSize: 8, opacity: 0.5, marginLeft: 4 }}>{latheTuneEnabled ? "▲" : "▼"} lathe</span>
+        </div>
+      </div>
       <div ref={crosshairRef} className="crosshair crosshairVisible" />
       <div
         ref={deathOverlayRef}
@@ -2730,6 +3112,8 @@ export default function FpsGame() {
             ds.fadeEndTime = performance.now() + DEATH_FADE_MS;
             playerHealthRef.current = 100;
             setPlayerHealth(100);
+            grenadeCountRef.current = getGrenadeParams().grenadeCount;
+            setGrenadeCount(grenadeCountRef.current);
             beginDeathOverlayFade(deathOverlayRef.current);
           }
           safeRequestPointerLock(canvasRef.current);
