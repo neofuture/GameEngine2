@@ -162,6 +162,7 @@ const PLAYER_HEIGHT_KEY = "fps-player-height";
 const SHOW_FPS_KEY = "fps-show-counter";
 const WEAPON_RECOIL_KEY = "fps-weapon-recoil-enabled";
 const DEFAULT_LOOK = 7;
+const DEFAULT_MOUSE_EASE = 0;
 const DEFAULT_MAX_LOOK_RATE = 2.5;
 const DEFAULT_PLAYER_HEIGHT = 1.65;
 /** Multiplier on `min(devicePixelRatio, 2)` — 1.0 = full quality, 0.5 = quarter pixel count. */
@@ -391,7 +392,7 @@ export default function FpsGame() {
   const [keyboardLook, setKeyboardLook] = useState(DEFAULT_LOOK);
   const [keyboardEase, setKeyboardEase] = useState(DEFAULT_LOOK);
   const [mouseLook, setMouseLook] = useState(DEFAULT_LOOK);
-  const [mouseEase, setMouseEase] = useState(DEFAULT_LOOK);
+  const [mouseEase, setMouseEase] = useState(DEFAULT_MOUSE_EASE);
   const [maxLookRate, setMaxLookRate] = useState(DEFAULT_MAX_LOOK_RATE);
   const [playerHeight, setPlayerHeight] = useState(DEFAULT_PLAYER_HEIGHT);
   const [sunAzimuth, setSunAzimuth] = useState(() => loadSunAngles().azimuth);
@@ -482,7 +483,7 @@ export default function FpsGame() {
   const keyboardLookRef = useRef(DEFAULT_LOOK);
   const keyboardEaseRef = useRef(DEFAULT_LOOK);
   const mouseLookRef = useRef(DEFAULT_LOOK);
-  const mouseEaseRef = useRef(DEFAULT_LOOK);
+  const mouseEaseRef = useRef(DEFAULT_MOUSE_EASE);
   const maxLookRateRef = useRef(DEFAULT_MAX_LOOK_RATE);
   const playerHeightRef = useRef(DEFAULT_PLAYER_HEIGHT);
   const storedSunAngles = loadSunAngles();
@@ -533,6 +534,23 @@ export default function FpsGame() {
   const grenadeCountRef = useRef(3);
   const [grenadeTuneEnabled, setGrenadeTuneEnabled] = useState(false);
   const [grenadeParams, setGrenadeParamsState] = useState(() => getGrenadeParams());
+  const [grenadeWidgetTuneEnabled, setGrenadeWidgetTuneEnabled] = useState(
+    () => window.localStorage.getItem("fps-grenade-widget-tune") === "true"
+  );
+  const [grenFrameWidthRem, setGrenFrameWidthRem] = useState(11.9);
+  const [grenFrameScale, setGrenFrameScale] = useState(1);
+  const [grenHudKeyX, setGrenHudKeyX] = useState(0);
+  const [grenHudKeyY, setGrenHudKeyY] = useState(0);
+  const [grenHudKeyScale, setGrenHudKeyScale] = useState(1);
+  const [grenHudIconX, setGrenHudIconX] = useState(0);
+  const [grenHudIconY, setGrenHudIconY] = useState(0);
+  const [grenHudIconScale, setGrenHudIconScale] = useState(1);
+  const [grenHudLabelX, setGrenHudLabelX] = useState(0);
+  const [grenHudLabelY, setGrenHudLabelY] = useState(0);
+  const [grenHudLabelScale, setGrenHudLabelScale] = useState(1);
+  const [grenHudCountX, setGrenHudCountX] = useState(0);
+  const [grenHudCountY, setGrenHudCountY] = useState(0);
+  const [grenHudCountScale, setGrenHudCountScale] = useState(1);
   const [playerLives, setPlayerLives] = useState(3);
   const [hostileCount, setHostileCount] = useState(0);
   const [missionTime, setMissionTime] = useState(0);
@@ -621,10 +639,13 @@ export default function FpsGame() {
     };
     const speedFallback = Number.isNaN(legacySpeed) ? DEFAULT_LOOK : legacySpeed;
     const easeFallback = Number.isNaN(legacyEase) ? DEFAULT_LOOK : legacyEase;
+    const mouseEaseFallback = Number.isNaN(legacyEase)
+      ? DEFAULT_MOUSE_EASE
+      : legacyEase;
     const kbLook = read(KEYBOARD_LOOK_KEY, speedFallback);
     const kbEase = read(KEYBOARD_EASE_KEY, easeFallback);
     const mLook = read(MOUSE_LOOK_KEY, speedFallback);
-    const mEase = read(MOUSE_EASE_KEY, easeFallback);
+    const mEase = read(MOUSE_EASE_KEY, mouseEaseFallback);
     const maxRate = read(LOOK_MAX_RATE_KEY, DEFAULT_MAX_LOOK_RATE);
     const tuneEnabled = loadWeaponTuneEnabled();
     const sunEnabled = localStorage.getItem(SUN_TUNE_ENABLED_KEY) === "true";
@@ -1269,7 +1290,14 @@ export default function FpsGame() {
       let fpsSmooth = 60;
 
       function syncPointerLocked() {
-        setPointerLocked(document.pointerLockElement === canvas);
+        const lockedNow = document.pointerLockElement === canvas;
+        setPointerLocked(lockedNow);
+        // Any "tuning" overlay with backdrop blur is expensive over WebGL.
+        // Auto-close it when entering pointer lock so gameplay FPS isn't capped.
+        if (lockedNow) {
+          setGrenadeWidgetTuneEnabled(false);
+          localStorage.setItem("fps-grenade-widget-tune", "false");
+        }
       }
 
       function animate(now) {
@@ -1593,7 +1621,13 @@ export default function FpsGame() {
           grenadeHeld = true;
         }
         if (grenadeHeld && gDown && !frozen) {
-          updateTrajectoryPreview(scene, camera, level.floorY, allColliders, level.bounds);
+          updateTrajectoryPreview(
+            scene,
+            camera,
+            level.floorY,
+            allColliders,
+            level.bounds
+          );
         }
         if (grenadeHeld && !gDown) {
           grenadeHeld = false;
@@ -1601,7 +1635,13 @@ export default function FpsGame() {
           if (!frozen && grenadeCountRef.current > 0) {
             grenadeCountRef.current--;
             setGrenadeCount(grenadeCountRef.current);
-            const g = spawnGrenade(scene, camera, level.floorY, allColliders, level.bounds);
+            const g = spawnGrenade(
+              scene,
+              camera,
+              level.floorY,
+              allColliders,
+              level.bounds
+            );
             grenades.push(g);
           }
         }
@@ -1620,15 +1660,24 @@ export default function FpsGame() {
 
         updateBullets(dt);
 
-        const preDetonated = new Set(grenades.filter(g => g.detonated).map(g => g));
-        updateGrenades(grenades, dt, scene, getLiveTargets, applyGrenadeHit,
+        updateGrenades(
+          grenades,
+          dt,
+          scene,
+          getLiveTargets,
+          applyGrenadeHit,
           (mesh, blastDir, opts) => {
             startDeathAnimation(mesh, blastDir, opts);
           },
-          { scene, colliders: allColliders, floorY: level.floorY, bounds: level.bounds },
+          {
+            scene,
+            colliders: allColliders,
+            floorY: level.floorY,
+            bounds: level.bounds,
+          }
         );
         for (const g of grenades) {
-          if (g.detonated && !preDetonated.has(g) && g.explosionPos) {
+          if (g.justDetonated && g.explosionPos) {
             triggerScreenShake(camera.position, g.explosionPos);
             const distToPlayer = camera.position.distanceTo(g.explosionPos);
             if (distToPlayer < getGrenadeParams().blastRadius) {
@@ -1692,14 +1741,16 @@ export default function FpsGame() {
         );
 
         updateGrenadeDrops(
-          grenadeDrops, dt, camera.position,
+          grenadeDrops,
+          dt,
+          camera.position,
           (value) => {
             grenadeCountRef.current += value;
             setGrenadeCount(grenadeCountRef.current);
             setPickupFlash({ type: "grenade", ts: Date.now() });
           },
           allColliders,
-          level.bounds,
+          level.bounds
         );
 
         if (!frozen) {
@@ -2376,7 +2427,7 @@ export default function FpsGame() {
                 </span>
                 <input
                   type="range"
-                  min="1"
+                  min="0"
                   max="10"
                   step="0.5"
                   value={mouseEase}
@@ -2578,6 +2629,21 @@ export default function FpsGame() {
               <p className="settingsHint">
                 Opens a floating panel with X/Y sliders for each HUD element
                 so you can align them over the artwork in real-time.
+              </p>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={grenadeWidgetTuneEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setGrenadeWidgetTuneEnabled(checked);
+                    localStorage.setItem("fps-grenade-widget-tune", String(checked));
+                  }}
+                />
+                Grenade widget tuning
+              </label>
+              <p className="settingsHint">
+                Adds an on-screen overlay with sliders for the grenade widget (key, icon, label, and count).
               </p>
             </SettingsSection>
             </div>
@@ -2935,6 +3001,109 @@ export default function FpsGame() {
           </div>
         </div>
       )}
+      {grenadeWidgetTuneEnabled && !pointerLocked && (
+        <div
+          className="hudTunePanel"
+          style={{ left: "1rem", right: "auto", bottom: "auto", top: "1rem", width: "min(18rem, calc(100vw - 2rem))" }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="hudTuneHeader">
+            <span>Grenade Widget</span>
+            <button type="button" className="hudTuneClose" onClick={() => {
+              setGrenadeWidgetTuneEnabled(false);
+              localStorage.setItem("fps-grenade-widget-tune", "false");
+            }}>×</button>
+          </div>
+          <div className="hudTuneBody">
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Frame</span>
+              <label className="hudTuneRow">
+                <span>Width</span>
+                <input type="range" min={7} max={18} step={0.1} value={grenFrameWidthRem} onChange={(e) => setGrenFrameWidthRem(+e.target.value)} />
+                <span className="hudTuneVal">{grenFrameWidthRem.toFixed(1)}rem</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Scale</span>
+                <input type="range" min={0.6} max={1.6} step={0.01} value={grenFrameScale} onChange={(e) => setGrenFrameScale(+e.target.value)} />
+                <span className="hudTuneVal">{grenFrameScale.toFixed(2)}×</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Key</span>
+              <label className="hudTuneRow">
+                <span>X</span>
+                <input type="range" min={-30} max={30} step={1} value={grenHudKeyX} onChange={(e) => setGrenHudKeyX(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudKeyX}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Y</span>
+                <input type="range" min={-30} max={30} step={1} value={grenHudKeyY} onChange={(e) => setGrenHudKeyY(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudKeyY}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Size</span>
+                <input type="range" min={0.5} max={2} step={0.01} value={grenHudKeyScale} onChange={(e) => setGrenHudKeyScale(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudKeyScale.toFixed(2)}×</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Icon</span>
+              <label className="hudTuneRow">
+                <span>X</span>
+                <input type="range" min={-30} max={30} step={1} value={grenHudIconX} onChange={(e) => setGrenHudIconX(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudIconX}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Y</span>
+                <input type="range" min={-30} max={30} step={1} value={grenHudIconY} onChange={(e) => setGrenHudIconY(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudIconY}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Size</span>
+                <input type="range" min={0.5} max={2} step={0.01} value={grenHudIconScale} onChange={(e) => setGrenHudIconScale(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudIconScale.toFixed(2)}×</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Label</span>
+              <label className="hudTuneRow">
+                <span>X</span>
+                <input type="range" min={-30} max={30} step={1} value={grenHudLabelX} onChange={(e) => setGrenHudLabelX(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudLabelX}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Y</span>
+                <input type="range" min={-30} max={30} step={1} value={grenHudLabelY} onChange={(e) => setGrenHudLabelY(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudLabelY}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Size</span>
+                <input type="range" min={0.5} max={2} step={0.01} value={grenHudLabelScale} onChange={(e) => setGrenHudLabelScale(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudLabelScale.toFixed(2)}×</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Count</span>
+              <label className="hudTuneRow">
+                <span>X</span>
+                <input type="range" min={-30} max={30} step={1} value={grenHudCountX} onChange={(e) => setGrenHudCountX(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudCountX}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Y</span>
+                <input type="range" min={-30} max={30} step={1} value={grenHudCountY} onChange={(e) => setGrenHudCountY(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudCountY}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Size</span>
+                <input type="range" min={0.5} max={2} step={0.01} value={grenHudCountScale} onChange={(e) => setGrenHudCountScale(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudCountScale.toFixed(2)}×</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
       {grenadeTuneEnabled && (
         <div className="hudTunePanel" style={{
             left: 0, right: 0, bottom: 0, top: "auto",
@@ -2947,6 +3116,51 @@ export default function FpsGame() {
             <button type="button" className="hudTuneClose" onClick={() => setGrenadeTuneEnabled(false)}>×</button>
           </div>
           <div className="hudTuneBody" style={{ display: "flex", gap: 8, flexWrap: "nowrap" }}>
+            <div className="hudTuneGroup" style={{ flex: "1 1 0", minWidth: 0 }}>
+              <span className="hudTuneGroupLabel">HUD</span>
+              <label className="hudTuneRow">
+                <span>Icon X</span>
+                <input type="range" min={-30} max={30} step={1}
+                  value={grenHudIconX}
+                  onChange={(e) => setGrenHudIconX(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudIconX}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Icon Y</span>
+                <input type="range" min={-30} max={30} step={1}
+                  value={grenHudIconY}
+                  onChange={(e) => setGrenHudIconY(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudIconY}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Label X</span>
+                <input type="range" min={-30} max={30} step={1}
+                  value={grenHudLabelX}
+                  onChange={(e) => setGrenHudLabelX(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudLabelX}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Label Y</span>
+                <input type="range" min={-30} max={30} step={1}
+                  value={grenHudLabelY}
+                  onChange={(e) => setGrenHudLabelY(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudLabelY}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Count X</span>
+                <input type="range" min={-30} max={30} step={1}
+                  value={grenHudCountX}
+                  onChange={(e) => setGrenHudCountX(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudCountX}px</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Count Y</span>
+                <input type="range" min={-30} max={30} step={1}
+                  value={grenHudCountY}
+                  onChange={(e) => setGrenHudCountY(+e.target.value)} />
+                <span className="hudTuneVal">{grenHudCountY}px</span>
+              </label>
+            </div>
             <div className="hudTuneGroup" style={{ flex: "1 1 0", minWidth: 0 }}>
               <span className="hudTuneGroupLabel">Throw</span>
               <label className="hudTuneRow">
@@ -3026,14 +3240,36 @@ export default function FpsGame() {
         <PickupOverlay3D key={pickupFlash.ts} type={pickupFlash.type}
           onDone={() => setPickupFlash(null)} />
       )}
-      <div className="hudSecondWeapon"
-        onClick={() => setGrenadeTuneEnabled(prev => !prev)}>
-        <div className={`hudSecondWeaponFrame${grenadeCount === 0 ? " hudSecondWeaponEmpty" : ""}`}>
+      <div
+        className="hudSecondWeapon"
+        onClick={() => setGrenadeTuneEnabled((prev) => !prev)}
+      >
+        <div
+          className={`hudSecondWeaponFrame${grenadeCount === 0 ? " hudSecondWeaponEmpty" : ""}`}
+          style={{
+            "--grenade-frame-w": `${grenFrameWidthRem}rem`,
+            "--grenade-frame-scale": String(grenFrameScale),
+            "--grenade-key-x": `${grenHudKeyX}px`,
+            "--grenade-key-y": `${grenHudKeyY}px`,
+            "--grenade-key-scale": String(grenHudKeyScale),
+            "--grenade-icon-x": `${grenHudIconX}px`,
+            "--grenade-icon-y": `${grenHudIconY}px`,
+            "--grenade-icon-scale": String(grenHudIconScale),
+            "--grenade-label-x": `${grenHudLabelX}px`,
+            "--grenade-label-y": `${grenHudLabelY}px`,
+            "--grenade-label-scale": String(grenHudLabelScale),
+            "--grenade-count-x": `${grenHudCountX}px`,
+            "--grenade-count-y": `${grenHudCountY}px`,
+            "--grenade-count-scale": String(grenHudCountScale),
+          }}
+        >
           <span className="hudSecondWeaponKey">4</span>
           <div className="hudSecondWeaponBody">
-            <img src="/ui/grenade.png" className="hudSecondWeaponIcon" alt="" />
-            <span className="hudSecondWeaponLabel">GRENADE</span>
-            <span className="hudSecondWeaponCount">{String(grenadeCount).padStart(2, "0")}</span>
+            <img src="/ui/granade.png" className="hudSecondWeaponIcon" alt="" />
+            <span className="hudSecondWeaponLabel">GRANADE</span>
+            <span className="hudSecondWeaponCount">
+              {String(grenadeCount).padStart(2, "0")}
+            </span>
           </div>
         </div>
       </div>

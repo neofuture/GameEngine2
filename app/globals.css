@@ -1361,12 +1361,14 @@ body {
   cursor: pointer;
 }
 
+/* PNG frame (`/ui/second-weapon.png`, 600×180) is the background. */
 .hudSecondWeaponFrame {
   position: relative;
-  width: min(11.9rem, 27.5vw);
-  aspect-ratio: 600 / 140;
+  width: var(--grenade-frame-w, min(11.9rem, 27.5vw));
+  aspect-ratio: 600 / 180;
   background: url("/ui/second-weapon.png") center / 100% 100% no-repeat;
-  filter: drop-shadow(0 0 6px rgba(59, 123, 255, 0.35));
+  transform: scale(var(--grenade-frame-scale, 1));
+  transform-origin: bottom right;
 }
 
 .hudSecondWeaponKey {
@@ -1382,6 +1384,9 @@ body {
   font-size: clamp(0.94rem, 2vw, 1.25rem);
   font-weight: 700;
   letter-spacing: 0.04em;
+  transform: translate(var(--grenade-key-x, 0px), var(--grenade-key-y, 0px))
+    scale(var(--grenade-key-scale, 1));
+  transform-origin: center;
   color: #7ec8ff;
   text-shadow: 0 0 8px rgba(94, 170, 255, 0.85);
 }
@@ -1404,7 +1409,9 @@ body {
   width: clamp(1.25rem, 2.5vw, 1.7rem);
   height: clamp(1.25rem, 2.5vw, 1.7rem);
   object-fit: contain;
-  filter: brightness(0) invert(1) drop-shadow(0 0 4px rgba(160, 210, 255, 0.6));
+  transform: translate(var(--grenade-icon-x, 0px), var(--grenade-icon-y, 0px))
+    scale(var(--grenade-icon-scale, 1));
+  transform-origin: center left;
   opacity: 0.92;
 }
 
@@ -1416,6 +1423,9 @@ body {
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  transform: translate(var(--grenade-label-x, 0px), var(--grenade-label-y, 0px))
+    scale(var(--grenade-label-scale, 1));
+  transform-origin: right top;
   color: rgba(180, 210, 240, 0.85);
   text-shadow: 0 0 6px rgba(94, 170, 255, 0.35);
 }
@@ -1429,6 +1439,9 @@ body {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
   line-height: 1;
+  transform: translate(var(--grenade-count-x, 0px), var(--grenade-count-y, 0px))
+    scale(var(--grenade-count-scale, 1));
+  transform-origin: right bottom;
   color: #8fd0ff;
   text-shadow: 0 0 10px rgba(59, 123, 255, 0.65);
 }
@@ -1441,12 +1454,11 @@ body {
 
 .hudSecondWeaponEmpty .hudSecondWeaponIcon {
   opacity: 0.55;
-  filter: brightness(0) invert(1) sepia(1) saturate(6) hue-rotate(-10deg)
-    drop-shadow(0 0 4px rgba(255, 80, 60, 0.5));
+  filter: saturate(0.4) sepia(1) hue-rotate(-15deg);
 }
 
 .hudSecondWeaponEmpty {
-  filter: drop-shadow(0 0 8px rgba(255, 60, 40, 0.25));
+  filter: none;
 }
 
 .crosshairVisible {
@@ -1494,6 +1506,7 @@ body {
   flex-direction: column;
   gap: 0.4rem;
 }
+
 
 .environmentTuneStack {
   position: fixed;
