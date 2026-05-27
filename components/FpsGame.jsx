@@ -52,8 +52,7 @@ import {
   applyScreenShake, triggerScreenShake,
   getGrenadeParams, setGrenadeParams,
   spawnGrenadeDrop, updateGrenadeDrops, disposeAllGrenadeDrops,
-  getGrenadeModel, disposeGrenadeModel,
-  getLatheRadii, setLatheRadii,
+  getGrenadeModel,
 } from "@/lib/Grenade";
 import {
   applyTargetHit,
@@ -161,6 +160,7 @@ const LEGACY_LOOK_EASE_KEY = "fps-look-ease";
 const RENDER_SCALE_KEY = "fps-render-scale";
 const PLAYER_HEIGHT_KEY = "fps-player-height";
 const SHOW_FPS_KEY = "fps-show-counter";
+const WEAPON_RECOIL_KEY = "fps-weapon-recoil-enabled";
 const DEFAULT_LOOK = 7;
 const DEFAULT_MAX_LOOK_RATE = 2.5;
 const DEFAULT_PLAYER_HEIGHT = 1.65;
@@ -422,6 +422,9 @@ export default function FpsGame() {
   const [controlsOpen, setControlsOpen] = useState(false);
   const [showFps, setShowFps] = useState(false);
   const [showDevOverlay, setShowDevOverlay] = useState(() => window.localStorage.getItem("fps-show-dev-overlay") === "true");
+  const [weaponRecoilEnabled, setWeaponRecoilEnabled] = useState(
+    () => window.localStorage.getItem(WEAPON_RECOIL_KEY) !== "false"
+  );
   const [hudTuneEnabled, setHudTuneEnabled] = useState(false);
   const [hudCogX, setHudCogX] = useState(4);
   const [hudCogY, setHudCogY] = useState(32);
@@ -461,6 +464,7 @@ export default function FpsGame() {
   const targetsRef = useRef([]);
   const [hitDebugEnabled, setHitDebugEnabled] = useState(false);
   const hitDebugEnabledRef = useRef(false);
+  const weaponRecoilEnabledRef = useRef(true);
   const [hitzoneOverlayEnabled, setHitzoneOverlayEnabled] = useState(false);
   const [levelEditEnabled, setLevelEditEnabled] = useState(false);
   const levelEditEnabledRef = useRef(false);
@@ -468,7 +472,6 @@ export default function FpsGame() {
   const [selectedLevelObjectVer, setSelectedLevelObjectVer] = useState(0);
   const levelObjectsRef = useRef([]);
   const sceneRef = useRef(null);
-  const displayGrenadeRef = useRef(null);
   const [bindings, setBindings] = useState(() => loadBindings());
   const [rebindAction, setRebindAction] = useState(null);
   const bindingsRef = useRef(loadBindings());
@@ -530,11 +533,6 @@ export default function FpsGame() {
   const grenadeCountRef = useRef(3);
   const [grenadeTuneEnabled, setGrenadeTuneEnabled] = useState(false);
   const [grenadeParams, setGrenadeParamsState] = useState(() => getGrenadeParams());
-  const [latheTuneEnabled, setLatheTuneEnabled] = useState(false);
-  const [latheRadii, setLatheRadiiState] = useState(() => getLatheRadii());
-  useEffect(() => { setLatheRadiiState(getLatheRadii()); }, []);
-  const [displayGrenadeY, setDisplayGrenadeY] = useState(1.4);
-  const latheScrollRef = useRef(null);
   const [playerLives, setPlayerLives] = useState(3);
   const [hostileCount, setHostileCount] = useState(0);
   const [missionTime, setMissionTime] = useState(0);
@@ -681,6 +679,7 @@ export default function FpsGame() {
   settingsOpenRef.current = settingsOpen;
   controlsOpenRef.current = controlsOpen;
   weaponTuneEnabledRef.current = weaponTuneEnabled;
+  weaponRecoilEnabledRef.current = weaponRecoilEnabled;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1184,6 +1183,12 @@ export default function FpsGame() {
         const camDir = hitRaycaster.ray.direction.clone();
         spawnBullet(hitRaycaster.ray.origin.clone(), camDir, muzzlePos);
         flashMuzzle();
+        if (weaponRecoilEnabledRef.current) {
+          const ads = weapon.getAimBlend?.() ?? 0;
+          const scale = 1 - ads * 0.45;
+          player.addAimRecoil(scale);
+          weapon.applyFireKick(ads);
+        }
         return true;
       }
 
@@ -1538,6 +1543,14 @@ export default function FpsGame() {
           dayNightToggleRef.current?.(!sunIsDayRef.current);
         }
 
+        const keyboardShoot =
+          canUseWeapons &&
+          isBindingDown(input, bindingsRef.current, "shoot");
+
+        if (canUseWeapons && (locked || keyboardShoot)) {
+          processWeaponFire(dt);
+        }
+
         if (!frozen) {
           weapon?.update(camera, aimTarget, dt, weaponTuningRef, {
             snapAim: !locked,
@@ -1551,14 +1564,6 @@ export default function FpsGame() {
         const targetFov = THREE.MathUtils.lerp(HIP_FOV, ADS_FOV, aimBlend);
         camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-12 * dt));
         camera.updateProjectionMatrix();
-
-        const keyboardShoot =
-          canUseWeapons &&
-          isBindingDown(input, bindingsRef.current, "shoot");
-
-        if (canUseWeapons && (locked || keyboardShoot)) {
-          processWeaponFire(dt);
-        }
 
         if (
           !rebindActionRef.current &&
@@ -1662,8 +1667,6 @@ export default function FpsGame() {
           bounds: level.bounds,
         });
 
-
-        if (displayGrenadeRef.current) displayGrenadeRef.current.rotation.y += dt * 0.8;
 
         updateHpOrbs(
           hpOrbs, dt, camera.position,
@@ -1785,10 +1788,6 @@ export default function FpsGame() {
             return next;
           });
         }
-        if (e.code === "F8" && !e.repeat) {
-          e.preventDefault();
-          setLatheTuneEnabled(prev => !prev);
-        }
       };
       onResize = () => {
         const w = window.innerWidth;
@@ -1834,8 +1833,6 @@ export default function FpsGame() {
       } catch (err) {
         console.error("Sky dome failed to load:", err);
       }
-
-      // Display grenade removed — use lathe tuner (F8) if needed
 
       gameReady = true;
       setLoadProgress(100);
@@ -2532,6 +2529,23 @@ export default function FpsGame() {
               <label className="settingRow">
                 <input
                   type="checkbox"
+                  checked={weaponRecoilEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setWeaponRecoilEnabled(checked);
+                    weaponRecoilEnabledRef.current = checked;
+                    localStorage.setItem(WEAPON_RECOIL_KEY, String(checked));
+                  }}
+                />
+                Weapon recoil
+              </label>
+              <p className="settingsHint">
+                Kicks the gun backward and nudges aim upward each shot so you
+                have to re-center. Turn off to compare feel while tuning.
+              </p>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
                   checked={showDevOverlay}
                   onChange={(e) => {
                     const checked = e.target.checked;
@@ -3008,93 +3022,19 @@ export default function FpsGame() {
           </div>
         </div>
       )}
-      {latheTuneEnabled && (
-        <div className="hudTunePanel" style={{
-            position: "fixed", left: 8, top: 40, bottom: 40, right: "auto",
-            width: 280, overflow: "hidden",
-            zIndex: 1000, padding: "4px 8px",
-            display: "flex", flexDirection: "column",
-          }}
-          onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-          <div className="hudTuneHeader">
-            <span>Lathe Profile (45 pts)</span>
-            <button type="button" style={{ marginLeft: "auto", marginRight: 8, fontSize: 10, padding: "2px 6px", cursor: "pointer" }}
-              onClick={() => {
-                const txt = latheRadii.map((v, i) => `${i}: ${v.toFixed(2)}`).join("\n");
-                const arr = `[${latheRadii.map(v => v.toFixed(2)).join(", ")}]`;
-                navigator.clipboard.writeText(arr).then(() => {
-                  alert("Copied to clipboard!");
-                });
-              }}>Copy</button>
-            <button type="button" className="hudTuneClose" onClick={() => setLatheTuneEnabled(false)}>×</button>
-          </div>
-          <div ref={latheScrollRef} className="hudTuneBody" style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", flex: 1 }}>
-            {latheRadii.map((val, idx) => (
-              <label key={idx} className="hudTuneRow" style={{ fontSize: 10 }}>
-                <span style={{ minWidth: 28, textAlign: "right" }}>#{idx}</span>
-                <input type="range" min={0.01} max={1.5} step={0.01}
-                  value={val}
-                  onChange={(e) => {
-                    const scrollY = latheScrollRef.current?.scrollTop ?? 0;
-                    const next = [...latheRadii];
-                    next[idx] = +e.target.value;
-                    setLatheRadii(next);
-                    setLatheRadiiState(next);
-                    requestAnimationFrame(() => {
-                      if (latheScrollRef.current) latheScrollRef.current.scrollTop = scrollY;
-                    });
-                    const old = displayGrenadeRef.current;
-                    if (old) {
-                      const pos = old.position.clone();
-                      const rot = old.rotation.y;
-                      const sc = old.scale.x;
-                      old.parent?.remove(old);
-                      disposeGrenadeModel(old);
-                      const fresh = getGrenadeModel();
-                      fresh.scale.setScalar(sc);
-                      fresh.position.copy(pos);
-                      fresh.rotation.y = rot;
-                      sceneRef.current?.add(fresh);
-                      displayGrenadeRef.current = fresh;
-                    }
-                  }} />
-                <span className="hudTuneVal" style={{ minWidth: 32 }}>{val.toFixed(2)}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-      {latheTuneEnabled && (
-        <div style={{
-            position: "fixed", right: 16, top: "50%", transform: "translateY(-50%)",
-            zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "center",
-            background: "rgba(0,0,0,0.6)", borderRadius: 6, padding: "8px 6px",
-          }}
-          onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-          <span style={{ color: "#fff", fontSize: 9, marginBottom: 4 }}>Y Pos</span>
-          <input type="range" min={0.5} max={2.0} step={0.01}
-            value={displayGrenadeY}
-            style={{ writingMode: "vertical-lr", direction: "rtl", height: 200 }}
-            onChange={(e) => {
-              const y = +e.target.value;
-              setDisplayGrenadeY(y);
-              const g = displayGrenadeRef.current;
-              if (g) g.position.y = y;
-            }} />
-          <span style={{ color: "#fff", fontSize: 10, marginTop: 4 }}>{displayGrenadeY.toFixed(2)}</span>
-        </div>
-      )}
       {pickupFlash && (
         <PickupOverlay3D key={pickupFlash.ts} type={pickupFlash.type}
           onDone={() => setPickupFlash(null)} />
       )}
-      <div className="hudSecondary"
-        onClick={() => setGrenadeTuneEnabled(prev => !prev)}
-        onContextMenu={(e) => { e.preventDefault(); setLatheTuneEnabled(prev => !prev); }}>
-        <div className={`hudSecondaryItem${grenadeCount === 0 ? " hudSecondaryEmpty" : ""}`}>
-          <span className="hudSecondaryCount">{String(grenadeCount).padStart(2, "0")}</span>
-          <span className="hudSecondaryLabel">GRENADES</span>
-          <span style={{ fontSize: 8, opacity: 0.5, marginLeft: 4 }}>{latheTuneEnabled ? "▲" : "▼"} lathe</span>
+      <div className="hudSecondWeapon"
+        onClick={() => setGrenadeTuneEnabled(prev => !prev)}>
+        <div className={`hudSecondWeaponFrame${grenadeCount === 0 ? " hudSecondWeaponEmpty" : ""}`}>
+          <span className="hudSecondWeaponKey">4</span>
+          <div className="hudSecondWeaponBody">
+            <img src="/ui/grenade.png" className="hudSecondWeaponIcon" alt="" />
+            <span className="hudSecondWeaponLabel">GRENADE</span>
+            <span className="hudSecondWeaponCount">{String(grenadeCount).padStart(2, "0")}</span>
+          </div>
         </div>
       </div>
       <div ref={crosshairRef} className="crosshair crosshairVisible" />
