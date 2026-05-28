@@ -1387,6 +1387,17 @@ body {
   animation: deathOverlayFadeOut 1.2s ease-out forwards;
 }
 
+/* Full-viewport white overlay above the 3D canvas, below HUD (z-index 15+). */
+.flashbangOverlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 14;
+  visibility: hidden;
+  opacity: 0;
+  background: #fff;
+}
+
 .deathOverlayInner {
   text-align: center;
   /* Sit slightly above centre — the blood is darkest near the middle, so

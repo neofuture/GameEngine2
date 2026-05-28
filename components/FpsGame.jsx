@@ -62,8 +62,9 @@ import {
   getGrenadeExplosionVfx, setGrenadeExplosionVfx, resetGrenadeExplosionVfx,
   spawnGrenadeDrop, updateGrenadeDrops, disposeAllGrenadeDrops,
   preloadGrenadeAssets,
+  PROJECTILE_FLASHBANG,
 } from "@/lib/Grenade";
-import { warmupGameGpu } from "@/lib/GpuWarmup";
+import { warmupGameGpu, resetGameGpuWarmup } from "@/lib/GpuWarmup";
 import {
   applyTargetHit,
   applyTargetPose,
@@ -87,6 +88,14 @@ import {
   updateLiveTargetsFloorHoles,
   updateTargetsRepair,
   updateTargetHealthBars,
+  blindTargetFromFlashbang,
+  updateFlashbangBlindVisuals,
+  getFlashbangBlindDurationSec,
+  FLASHBANG_BLIND_FULL_SEC,
+  FLASHBANG_BLIND_DIM_SEC,
+  FLASHBANG_BLIND_FADE_SEC,
+  FLASHBANG_BLIND_FULL_OPACITY,
+  FLASHBANG_BLIND_DIM_OPACITY,
 } from "@/lib/Targets";
 import {
   disposeAllBloodSplatters,
@@ -190,6 +199,20 @@ const _radarScratch = new Array(64);
 
 const WEAPON_SLOT_IDS = [1, 2, 3, 4];
 const GRENADE_WEAPON_SLOT = 1;
+const FLASHBANG_WEAPON_SLOT = 2;
+const DEFAULT_FLASHBANG_COUNT = 4;
+
+/** HUD-only secondary weapons (gameplay not wired yet). */
+const SECONDARY_WEAPON_UI = {
+  [GRENADE_WEAPON_SLOT]: {
+    label: "GRANADE",
+    icon: "/ui/grenade.png",
+  },
+  [FLASHBANG_WEAPON_SLOT]: {
+    label: "FLASHBANG",
+    icon: "/ui/grenade.png",
+  },
+};
 
 /** TEMP — every kill drops HP + ammo + grenade for pickup sound testing. */
 const DEV_DROP_ALL_REWARDS = false;
@@ -256,6 +279,9 @@ const DEFAULT_PLAYER_HEIGHT = 1.65;
 const DEFAULT_RENDER_SCALE = 0.4;
 const MIN_RENDER_SCALE = 0.25;
 const MAX_RENDER_SCALE = 1.0;
+
+/** Survives React Fast Refresh so a dev reload keeps in-level state (music, overlay). */
+let gameSessionStarted = false;
 
 function loadRenderScale() {
   if (typeof window === "undefined") return DEFAULT_RENDER_SCALE;
@@ -345,6 +371,31 @@ function hideDeathOverlay(overlayEl) {
   if (!overlayEl) return;
   overlayEl.classList.remove("deathOverlayActive");
   overlayEl.classList.remove("deathOverlayFading");
+}
+
+/** CSS overlay: 3s @ 100% → 1s @ 90% → 3s fade out. HUD stays above (z-index 15+). */
+function getFlashbangOverlayOpacity(elapsedSec) {
+  const fullEnd = FLASHBANG_BLIND_FULL_SEC;
+  const dimEnd = fullEnd + FLASHBANG_BLIND_DIM_SEC;
+  const total = getFlashbangBlindDurationSec();
+  if (elapsedSec >= total) return 0;
+  if (elapsedSec < fullEnd) return FLASHBANG_BLIND_FULL_OPACITY;
+  if (elapsedSec < dimEnd) return FLASHBANG_BLIND_DIM_OPACITY;
+  const fadeT = (elapsedSec - dimEnd) / FLASHBANG_BLIND_FADE_SEC;
+  return FLASHBANG_BLIND_DIM_OPACITY * (1 - fadeT);
+}
+
+function updateFlashbangOverlay(el, blindStartMs) {
+  if (!el) return;
+  if (!blindStartMs) {
+    el.style.opacity = "0";
+    el.style.visibility = "hidden";
+    return;
+  }
+  const elapsed = (performance.now() - blindStartMs) / 1000;
+  const opacity = getFlashbangOverlayOpacity(elapsed);
+  el.style.visibility = opacity > 0 ? "visible" : "hidden";
+  el.style.opacity = String(opacity);
 }
 
 function safeRequestPointerLock(canvas) {
@@ -450,6 +501,7 @@ function updateWalkPowerHud(el, stamina, staminaMax, playerHealth, visible) {
 
 const WeaponSlotStack = memo(function WeaponSlotStack({
   grenadeCount,
+  flashbangCount,
   selectedWeaponSlot,
   weaponStackTune,
   frameX,
@@ -467,9 +519,16 @@ const WeaponSlotStack = memo(function WeaponSlotStack({
     >
       <div className="hudWeaponSlots">
         {WEAPON_SLOT_IDS.map((slotId) => {
-          const isGrenadeSlot = slotId === GRENADE_WEAPON_SLOT;
+          const weaponUi = SECONDARY_WEAPON_UI[slotId];
           const isSelected = slotId === selectedWeaponSlot;
-          const isEmptyGrenade = isGrenadeSlot && grenadeCount === 0;
+          const count = weaponUi
+            ? slotId === GRENADE_WEAPON_SLOT
+              ? grenadeCount
+              : slotId === FLASHBANG_WEAPON_SLOT
+                ? flashbangCount
+                : 0
+            : 0;
+          const isEmpty = weaponUi ? count === 0 : true;
 
           return (
             <div
@@ -477,7 +536,7 @@ const WeaponSlotStack = memo(function WeaponSlotStack({
               className={[
                 "hudSecondWeaponFrame",
                 isSelected ? "hudSecondWeaponFrame--selected" : "",
-                isEmptyGrenade ? "hudSecondWeaponEmpty" : "",
+                isEmpty ? "hudSecondWeaponEmpty" : "",
               ]
                 .filter(Boolean)
                 .join(" ")}
@@ -489,9 +548,9 @@ const WeaponSlotStack = memo(function WeaponSlotStack({
             >
               <span className="hudSecondWeaponKey">{slotId}</span>
               <div className="hudSecondWeaponBody">
-                {isGrenadeSlot ? (
+                {weaponUi ? (
                   <img
-                    src="/ui/granade.png"
+                    src={weaponUi.icon}
                     className="hudSecondWeaponIcon"
                     alt=""
                   />
@@ -502,12 +561,10 @@ const WeaponSlotStack = memo(function WeaponSlotStack({
                   />
                 )}
                 <span className="hudSecondWeaponLabel">
-                  {isGrenadeSlot ? "GRANADE" : "EMPTY"}
+                  {weaponUi?.label ?? "EMPTY"}
                 </span>
                 <span className="hudSecondWeaponCount">
-                  {isGrenadeSlot
-                    ? String(grenadeCount).padStart(2, "0")
-                    : "00"}
+                  {weaponUi ? String(count).padStart(2, "0") : "00"}
                 </span>
               </div>
             </div>
@@ -528,6 +585,8 @@ export default function FpsGame() {
   const radarSweepRef = useRef(null);
   const radarDotsRef = useRef(null);
   const deathOverlayRef = useRef(null);
+  const flashbangOverlayRef = useRef(null);
+  const flashbangBlindStartRef = useRef(0);
   const damageVignetteRef = useRef(null);
   const walkPowerRef = useRef(null);
   const deathReasonRef = useRef(null);
@@ -585,7 +644,7 @@ export default function FpsGame() {
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadAssetLabel, setLoadAssetLabel] = useState("Initializing…");
   const [assetsReady, setAssetsReady] = useState(false);
-  const [loadDone, setLoadDone] = useState(false);
+  const [loadDone, setLoadDone] = useState(() => gameSessionStarted);
   const loadDoneRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
@@ -698,6 +757,8 @@ export default function FpsGame() {
     () => getGrenadeParams().grenadeCount
   );
   const grenadeCountRef = useRef(getGrenadeParams().grenadeCount);
+  const [flashbangCount, setFlashbangCount] = useState(DEFAULT_FLASHBANG_COUNT);
+  const flashbangCountRef = useRef(DEFAULT_FLASHBANG_COUNT);
   const [grenadeTuneEnabled, setGrenadeTuneEnabled] = useState(
     () =>
       typeof window !== "undefined" &&
@@ -738,6 +799,8 @@ export default function FpsGame() {
     3: { ...DEFAULT_WEAPON_STACK_TUNE[3] },
   }));
   const [selectedWeaponSlot, setSelectedWeaponSlot] = useState(GRENADE_WEAPON_SLOT);
+  const selectedWeaponSlotRef = useRef(GRENADE_WEAPON_SLOT);
+  selectedWeaponSlotRef.current = selectedWeaponSlot;
   const [playerLives, setPlayerLives] = useState(3);
   const [hostileCount, setHostileCount] = useState(0);
   const [missionTime, setMissionTime] = useState(0);
@@ -789,6 +852,7 @@ export default function FpsGame() {
   rebindActionRef.current = rebindAction;
   fireModeRef.current = fireMode;
   loadDoneRef.current = loadDone;
+  if (loadDone) gameSessionStarted = true;
   musicEnabledRef.current = musicEnabled;
 
   scheduleGameplayHudSyncRef.current = () => {
@@ -812,14 +876,12 @@ export default function FpsGame() {
 
   useEffect(() => {
     const s = soundsRef.current;
-    if (!s) return;
-    if (loadDone) {
-      s.stopLoadingMusic();
-      if (musicEnabledRef.current) {
-        s.startLevelMusic({ trackId: levelMusicTrackIdRef.current });
-      }
+    if (!s || !loadDone || !assetsReady) return;
+    s.stopLoadingMusic();
+    if (musicEnabledRef.current) {
+      s.startLevelMusic({ trackId: levelMusicTrackIdRef.current });
     }
-  }, [loadDone]);
+  }, [loadDone, assetsReady]);
 
   useEffect(() => {
     if (!rebindAction) return;
@@ -1011,7 +1073,12 @@ export default function FpsGame() {
       reportLoad(12, "Audio ready");
       if (musicEnabledRef.current) {
         sounds.resume();
-        sounds.startLoadingMusic({ trackId: loadingMusicTrackIdRef.current });
+        if (loadDoneRef.current) {
+          sounds.stopLoadingMusic();
+          sounds.startLevelMusic({ trackId: levelMusicTrackIdRef.current });
+        } else {
+          sounds.startLoadingMusic({ trackId: loadingMusicTrackIdRef.current });
+        }
       }
 
       reportLoad(18, "Arena config");
@@ -1316,6 +1383,7 @@ export default function FpsGame() {
       grenadeDrops = [];
       bloodSplatters = [];
       let grenadeHeld = false;
+      let simTime = 0;
       const allColliders = [...level.colliders, ...level.stairColliders];
       let _lastHostileCount = -1;
       let _radarFrameSkip = 0;
@@ -1329,6 +1397,58 @@ export default function FpsGame() {
         return level.targets.filter(
           (t) => t.visible && t.userData.health > 0
         );
+      }
+
+      const flashbangLosRaycaster = new THREE.Raycaster();
+      flashbangLosRaycaster.layers.enable(WORLD_LAYER);
+      flashbangLosRaycaster.layers.enable(ROOM_INTERIOR_LAYER);
+      const _flashBlindPos = new THREE.Vector3();
+      const _flashBlindDir = new THREE.Vector3();
+      const _flashBlindNdc = new THREE.Vector3();
+
+      /** True when the blast is on-screen and not blocked by level geometry. */
+      function canFlashbangBlindPlayer(explosionPos) {
+        const blindRadius = getGrenadeParams().flashbangBlindRadius ?? 18;
+        _flashBlindPos.copy(explosionPos);
+        _flashBlindPos.y += 0.35;
+
+        const dist = camera.position.distanceTo(_flashBlindPos);
+        if (dist > blindRadius) return false;
+
+        _flashBlindNdc.copy(_flashBlindPos).project(camera);
+        if (_flashBlindNdc.z > 1) return false;
+        if (
+          Math.abs(_flashBlindNdc.x) > 1.3 ||
+          Math.abs(_flashBlindNdc.y) > 1.3
+        ) {
+          return false;
+        }
+
+        _flashBlindDir.subVectors(_flashBlindPos, camera.position);
+        const distLen = _flashBlindDir.length();
+        if (distLen < 0.08) return true;
+
+        _flashBlindDir.multiplyScalar(1 / distLen);
+        flashbangLosRaycaster.set(camera.position, _flashBlindDir);
+        flashbangLosRaycaster.far = distLen + 0.2;
+        flashbangLosRaycaster.near = 0.05;
+
+        for (const hit of flashbangLosRaycaster.intersectObjects(
+          levelHitMeshes,
+          false
+        )) {
+          if (hit.distance < distLen - 0.45) return false;
+        }
+
+        for (const hit of flashbangLosRaycaster.intersectObjects(
+          getLiveTargets(),
+          true
+        )) {
+          if (hit.object.isSprite) continue;
+          if (hit.distance < distLen - 0.45) return false;
+        }
+
+        return true;
       }
 
       function scheduleRespawn(mesh) {
@@ -1464,11 +1584,12 @@ export default function FpsGame() {
         }
       }
 
-      function applyHit(hit, bulletDirection) {
+      function applyHit(hit, bulletDirection, targetMesh) {
+        const mesh = targetMesh ?? hit.object;
         if (targetTuneEnabledRef.current) {
-          selectedTargetRef.current = hit.object;
+          selectedTargetRef.current = mesh;
         }
-        const { killed, zone, damage } = applyTargetHit(hit.object, hit.point, bulletDirection);
+        const { killed, zone, damage } = applyTargetHit(mesh, hit.point, bulletDirection);
         if (zone !== "miss") {
           const splatterDamage = Math.max(damage, 4);
           const splatter = spawnBloodSplatter(
@@ -1479,7 +1600,7 @@ export default function FpsGame() {
           );
           if (splatter) bloodSplatters.push(splatter);
           spawnBloodMarkOnTarget(
-            hit.object,
+            mesh,
             hit.point,
             hit.face,
             bulletDirection,
@@ -1487,9 +1608,9 @@ export default function FpsGame() {
           );
         }
         if (killed) {
-          const deathPos = hit.object.position.clone();
+          const deathPos = mesh.position.clone();
           scheduleKillDrops(deathPos, zone);
-          startDeathAnimation(hit.object, bulletDirection, {
+          startDeathAnimation(mesh, bulletDirection, {
             scene,
             colliders: allColliders,
             floorY: level.floorY,
@@ -1678,7 +1799,7 @@ export default function FpsGame() {
               targetNode = targetNode.parent;
             }
             if (targetNode?.userData?.isTarget && targetNode.userData.health > 0) {
-              applyHit(bestHit, bullet.direction);
+              applyHit(bestHit, bullet.direction, targetNode);
             } else {
               applyBulletSurfaceHit(
                 bestHit,
@@ -1716,6 +1837,7 @@ export default function FpsGame() {
         try {
         const dt = Math.min((now - lastTime) / 1000, 0.05);
         lastTime = now;
+        if (dt > 0) simTime += dt;
         if (dt > 0) {
           fpsSmooth += (1 / dt - fpsSmooth) * 0.12;
           if (fpsRef.current) {
@@ -1757,6 +1879,8 @@ export default function FpsGame() {
               setPlayerHealth(100);
               grenadeCountRef.current = getGrenadeParams().grenadeCount;
               setGrenadeCount(grenadeCountRef.current);
+              flashbangBlindStartRef.current = 0;
+              updateFlashbangOverlay(flashbangOverlayRef.current, 0);
               deathState.fadeEndTime = now + DEATH_FADE_MS;
               beginDeathOverlayFade(deathOverlayRef.current);
             }
@@ -2042,13 +2166,18 @@ export default function FpsGame() {
           }
         }
 
-        // Grenade: hold G to preview, release to throw
+        // Grenade / flashbang: hold G to preview, release to throw
+        const activeSlot = selectedWeaponSlotRef.current;
+        const throwingGrenade = activeSlot === GRENADE_WEAPON_SLOT;
+        const throwingFlashbang = activeSlot === FLASHBANG_WEAPON_SLOT;
+        const canThrowSecondary =
+          (throwingGrenade && grenadeCountRef.current > 0) ||
+          (throwingFlashbang && flashbangCountRef.current > 0);
         const gDown = isBindingDown(input, bindingsRef.current, "grenade");
-        const canThrowGrenade = grenadeCountRef.current > 0;
-        if (gDown && !grenadeHeld && !frozen && canThrowGrenade) {
+        if (gDown && !grenadeHeld && !frozen && canThrowSecondary) {
           grenadeHeld = true;
         }
-        if (grenadeHeld && gDown && !frozen && canThrowGrenade) {
+        if (grenadeHeld && gDown && !frozen && canThrowSecondary) {
           updateTrajectoryPreview(
             scene,
             camera,
@@ -2056,22 +2185,28 @@ export default function FpsGame() {
             allColliders,
             level.bounds
           );
-        } else if (gDown && !canThrowGrenade) {
+        } else if (gDown && !canThrowSecondary) {
           hideTrajectoryPreview();
         }
         if (grenadeHeld && !gDown) {
           grenadeHeld = false;
           hideTrajectoryPreview();
-          if (!frozen && grenadeCountRef.current > 0) {
-            grenadeCountRef.current--;
-            setGrenadeCount(grenadeCountRef.current);
+          if (!frozen && canThrowSecondary) {
+            if (throwingGrenade) {
+              grenadeCountRef.current--;
+              setGrenadeCount(grenadeCountRef.current);
+            } else if (throwingFlashbang) {
+              flashbangCountRef.current--;
+              setFlashbangCount(flashbangCountRef.current);
+            }
             const g = spawnGrenade(
               scene,
               camera,
               level.floorY,
               allColliders,
               level.bounds,
-              level.floorHoles ?? []
+              level.floorHoles ?? [],
+              throwingFlashbang ? PROJECTILE_FLASHBANG : undefined
             );
             grenades.push(g);
             sounds.playGrenadeWhoosh({ volume: 0.8 });
@@ -2109,22 +2244,34 @@ export default function FpsGame() {
             floorY: level.floorY,
             bounds: level.bounds,
             floorHoles: level.floorHoles ?? [],
+            simTime,
             onFloorHit: (pos, impact) => {
               sounds.playGrenadeFloorHit(scene, pos, { impact });
             },
             onExplode: (pos) => {
               sounds.playGrenadeExplosion(scene, pos);
+              triggerScreenShake(camera.position, pos);
             },
             countdownDuration: sounds.getGrenadeCountdownDuration(),
             onCountdown: (pos, playbackRate) => {
               sounds.playGrenadeCountdown(scene, pos, { playbackRate });
             },
+            canFlashbangBlindPlayer,
+            onPlayerBlinded: () => {
+              flashbangBlindStartRef.current = performance.now();
+            },
+            onTargetBlinded: (mesh, time) => {
+              blindTargetFromFlashbang(mesh, time);
+            },
             viewerPos: camera.position,
           }
         );
         for (const g of grenades) {
-          if (g.justDetonated && g.explosionPos) {
-            triggerScreenShake(camera.position, g.explosionPos);
+          if (
+            g.justDetonated &&
+            g.explosionPos &&
+            g.type !== PROJECTILE_FLASHBANG
+          ) {
             const distToPlayer = camera.position.distanceTo(g.explosionPos);
             if (distToPlayer < getGrenadeParams().blastRadius) {
               const hp = playerHealthRef.current;
@@ -2136,6 +2283,18 @@ export default function FpsGame() {
           }
         }
         applyScreenShake(camera, dt);
+        updateFlashbangBlindVisuals(level.targets, simTime);
+        updateFlashbangOverlay(
+          flashbangOverlayRef.current,
+          flashbangBlindStartRef.current
+        );
+        if (flashbangBlindStartRef.current) {
+          const blindElapsed =
+            (performance.now() - flashbangBlindStartRef.current) / 1000;
+          if (blindElapsed >= getFlashbangBlindDurationSec()) {
+            flashbangBlindStartRef.current = 0;
+          }
+        }
 
         // Health auto-regen: 1 HP every 10 seconds while below 100
         if (playerHealthRef.current > 0 && playerHealthRef.current < 100) {
@@ -2297,6 +2456,8 @@ export default function FpsGame() {
           ds.fadeEndTime = performance.now() + DEATH_FADE_MS;
           playerHealthRef.current = 100;
           setPlayerHealth(100);
+          flashbangBlindStartRef.current = 0;
+          updateFlashbangOverlay(flashbangOverlayRef.current, 0);
           beginDeathOverlayFade(deathOverlayRef.current);
         }
         safeRequestPointerLock(canvas);
@@ -2455,6 +2616,7 @@ export default function FpsGame() {
       resetRoomInteriorAmbient();
       renderer.dispose();
       rendererRef.current = null;
+      resetGameGpuWarmup();
       safeExitPointerLock();
     };
   }, []);
@@ -2509,7 +2671,7 @@ export default function FpsGame() {
     } else if (loadDoneRef.current) {
       s.resume();
       s.startLevelMusic({ trackId: levelMusicTrackIdRef.current });
-    } else {
+    } else if (!loadDoneRef.current) {
       s.resume();
       s.startLoadingMusic({ trackId: loadingMusicTrackIdRef.current });
     }
@@ -2517,6 +2679,7 @@ export default function FpsGame() {
 
   const handleStartGame = () => {
     if (loadDone || !assetsReady) return;
+    gameSessionStarted = true;
     soundsRef.current?.resume();
     setLoadDone(true);
     safeRequestPointerLock(canvasRef.current);
@@ -2531,7 +2694,7 @@ export default function FpsGame() {
           const s = soundsRef.current;
           if (!s) return;
           s.resume();
-          if (musicEnabledRef.current) {
+          if (musicEnabledRef.current && !loadDoneRef.current) {
             s.startLoadingMusic({ trackId: loadingMusicTrackIdRef.current });
           }
         }}
@@ -2572,6 +2735,11 @@ export default function FpsGame() {
         )}
       </div>
       <canvas ref={canvasRef} className="gameCanvas" />
+      <div
+        ref={flashbangOverlayRef}
+        className="flashbangOverlay"
+        aria-hidden="true"
+      />
       <div
         className="hudBottomBar"
         role="region"
@@ -4023,6 +4191,7 @@ export default function FpsGame() {
                 ["embers", "Embers"],
                 ["debris", "Debris"],
                 ["light", "Explosion light"],
+                ["lightning", "Lightning zaps"],
               ].map(([key, label]) => (
                 <label key={key} className="settingRow hudTuneLayerRow">
                   <input
@@ -4287,6 +4456,79 @@ export default function FpsGame() {
                   {(explosionVfx.lightBlueMix ?? 0.85).toFixed(2)}
                 </span>
               </label>
+              <label className="hudTuneRow">
+                <span>Lightning width (px)</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={8}
+                  step={0.5}
+                  value={
+                    (explosionVfx.lightningThickness ?? 4) <= 0.25
+                      ? 4
+                      : explosionVfx.lightningThickness ?? 4
+                  }
+                  onChange={(e) =>
+                    patchExplosionVfx({ lightningThickness: +e.target.value })
+                  }
+                />
+                <span className="hudTuneVal">
+                  {(
+                    (explosionVfx.lightningThickness ?? 4) <= 0.25
+                      ? 4
+                      : explosionVfx.lightningThickness ?? 4
+                  ).toFixed(1)}
+                  px
+                </span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Lightning bolts</span>
+                <input
+                  type="range"
+                  min={3}
+                  max={16}
+                  step={1}
+                  value={explosionVfx.lightningBoltCount ?? 10}
+                  onChange={(e) =>
+                    patchExplosionVfx({ lightningBoltCount: +e.target.value })
+                  }
+                />
+                <span className="hudTuneVal">
+                  {explosionVfx.lightningBoltCount ?? 10}
+                </span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Lightning length</span>
+                <input
+                  type="range"
+                  min={0.3}
+                  max={1.5}
+                  step={0.05}
+                  value={explosionVfx.lightningLengthMul ?? 1.0}
+                  onChange={(e) =>
+                    patchExplosionVfx({ lightningLengthMul: +e.target.value })
+                  }
+                />
+                <span className="hudTuneVal">
+                  {(explosionVfx.lightningLengthMul ?? 1.0).toFixed(2)}
+                </span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Lightning duration</span>
+                <input
+                  type="range"
+                  min={0.08}
+                  max={0.8}
+                  step={0.01}
+                  value={explosionVfx.lightningDuration ?? 0.34}
+                  onChange={(e) =>
+                    patchExplosionVfx({ lightningDuration: +e.target.value })
+                  }
+                />
+                <span className="hudTuneVal">
+                  {(explosionVfx.lightningDuration ?? 0.34).toFixed(2)}s
+                </span>
+              </label>
             </div>
           </div>
         </div>
@@ -4301,6 +4543,7 @@ export default function FpsGame() {
       <PickupFlashLayer ref={pickupFlashLayerRef} />
       <WeaponSlotStack
         grenadeCount={grenadeCount}
+        flashbangCount={flashbangCount}
         selectedWeaponSlot={selectedWeaponSlot}
         weaponStackTune={weaponStackTune}
         frameX={grenFrameX}
@@ -4324,6 +4567,8 @@ export default function FpsGame() {
             setPlayerHealth(100);
             grenadeCountRef.current = getGrenadeParams().grenadeCount;
             setGrenadeCount(grenadeCountRef.current);
+            flashbangBlindStartRef.current = 0;
+            updateFlashbangOverlay(flashbangOverlayRef.current, 0);
             beginDeathOverlayFade(deathOverlayRef.current);
           }
           safeRequestPointerLock(canvasRef.current);
