@@ -9,6 +9,26 @@ import {
   DURATION_SEC_MIN,
   DURATION_SEC_NUDGE,
   DURATION_SEC_STEP,
+  PITCH_SCALE_MAX,
+  PITCH_SCALE_MIN,
+  PITCH_SCALE_NUDGE,
+  PITCH_SCALE_STEP,
+  ROLL_SCALE_MAX,
+  ROLL_SCALE_MIN,
+  ROLL_SCALE_NUDGE,
+  ROLL_SCALE_STEP,
+  SPRINT_SPEED_MAX,
+  SPRINT_SPEED_MIN,
+  SPRINT_SPEED_NUDGE,
+  SPRINT_SPEED_STEP,
+  WALK_SPEED_MAX,
+  WALK_SPEED_MIN,
+  WALK_SPEED_NUDGE,
+  WALK_SPEED_STEP,
+  WEAPON_BOB_SCALE_MAX,
+  WEAPON_BOB_SCALE_MIN,
+  WEAPON_BOB_SCALE_NUDGE,
+  WEAPON_BOB_SCALE_STEP,
 } from "@/lib/WalkBobTuning";
 
 function clamp(value, min, max) {
@@ -96,6 +116,29 @@ export default function WalkBobTunePanel({ tuning, onChange, onReset, onClose })
         </div>
       </div>
 
+      <p className="walkBobSectionTitle">Movement</p>
+      <BobControl
+        label="Walk speed"
+        value={tuning.walkSpeed}
+        min={WALK_SPEED_MIN}
+        max={WALK_SPEED_MAX}
+        step={WALK_SPEED_STEP}
+        nudge={WALK_SPEED_NUDGE}
+        format={(v) => `${v.toFixed(1)} m/s`}
+        onChange={(value) => onChange("walkSpeed", value)}
+      />
+      <BobControl
+        label="Sprint speed"
+        value={tuning.sprintSpeed}
+        min={SPRINT_SPEED_MIN}
+        max={SPRINT_SPEED_MAX}
+        step={SPRINT_SPEED_STEP}
+        nudge={SPRINT_SPEED_NUDGE}
+        format={(v) => `${v.toFixed(1)} m/s`}
+        onChange={(value) => onChange("sprintSpeed", value)}
+      />
+
+      <p className="walkBobSectionTitle">Camera bob</p>
       <BobControl
         label="Amplitude"
         value={tuning.amplitudeCm}
@@ -107,7 +150,7 @@ export default function WalkBobTunePanel({ tuning, onChange, onReset, onClose })
         onChange={(value) => onChange("amplitudeCm", value)}
       />
       <BobControl
-        label="Duration"
+        label="Cycle duration"
         value={tuning.durationSec}
         min={DURATION_SEC_MIN}
         max={DURATION_SEC_MAX}
@@ -116,11 +159,43 @@ export default function WalkBobTunePanel({ tuning, onChange, onReset, onClose })
         format={(v) => `${v.toFixed(2)} s`}
         onChange={(value) => onChange("durationSec", value)}
       />
+      <BobControl
+        label="Pitch sway"
+        value={tuning.pitchScale}
+        min={PITCH_SCALE_MIN}
+        max={PITCH_SCALE_MAX}
+        step={PITCH_SCALE_STEP}
+        nudge={PITCH_SCALE_NUDGE}
+        format={(v) => `${v.toFixed(2)}×`}
+        onChange={(value) => onChange("pitchScale", value)}
+      />
+      <BobControl
+        label="Roll sway"
+        value={tuning.rollScale}
+        min={ROLL_SCALE_MIN}
+        max={ROLL_SCALE_MAX}
+        step={ROLL_SCALE_STEP}
+        nudge={ROLL_SCALE_NUDGE}
+        format={(v) => `${v.toFixed(2)}×`}
+        onChange={(value) => onChange("rollScale", value)}
+      />
+
+      <p className="walkBobSectionTitle">Weapon bob</p>
+      <BobControl
+        label="Weapon sway"
+        value={tuning.weaponBobScale}
+        min={WEAPON_BOB_SCALE_MIN}
+        max={WEAPON_BOB_SCALE_MAX}
+        step={WEAPON_BOB_SCALE_STEP}
+        nudge={WEAPON_BOB_SCALE_NUDGE}
+        format={(v) => `${v.toFixed(2)}×`}
+        onChange={(value) => onChange("weaponBobScale", value)}
+      />
 
       <p className="stairTuneHint">
-        Amplitude = how high the bob goes. Duration = time for one full up-down
-        cycle while walking. Pitch, roll, and stair step motion scale with
-        amplitude; smoothness scales with duration.
+        Walk and sprint speeds apply immediately. Bob cycle rate scales with walk
+        speed so faster movement keeps a natural step rhythm. Pitch, roll, and
+        weapon sway multiply on top of amplitude.
       </p>
     </div>
   );

@@ -3,10 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev.mjs",
+    "dev:reset": "node scripts/dev.mjs --reset",
+    "dev:webpack": "node scripts/dev.mjs --webpack",
     "build": "next build",
     "start": "next start",
-    "clean": "rm -rf .next"
+    "clean": "node scripts/clean-next.mjs",
+    "prebuild": "node scripts/clean-next.mjs"
   },
   "dependencies": {
     "next": "^15.3.2",

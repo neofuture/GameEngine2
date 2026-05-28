@@ -29,10 +29,17 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2.4rem;
+  gap: 1.6rem;
   background: #030406;
   opacity: 1;
   transition: opacity 0.6s ease;
+}
+
+.loadingHeroStack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
 }
 
 .loadingDone {
@@ -59,8 +66,200 @@ body {
   height: 100%;
   border-radius: 4px;
   background: linear-gradient(180deg, rgb(30,160,255) 0%, rgb(70,200,255) 45%, rgb(30,160,255) 100%);
-  box-shadow: 0 0 8px rgba(50, 170, 255, 0.6), inset 0 1px 0 rgba(255,255,255,0.2);
   transition: width 0.4s ease;
+}
+
+.loadingAssetLabel {
+  margin-top: 0.55rem;
+  max-width: min(360px, 70vw);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: rgba(180, 210, 255, 0.85);
+  text-transform: uppercase;
+}
+
+.loadingStartBtn {
+  padding: 0.75rem 2.4rem;
+  border-radius: 8px;
+  border: 1px solid rgba(94, 170, 255, 0.35);
+  background: linear-gradient(180deg, rgb(30, 160, 255) 0%, rgb(20, 120, 210) 100%);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: inherit;
+  cursor: pointer;
+  animation: loadingStartIn 0.35s ease;
+}
+
+@keyframes loadingStartIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* === Loading screen audio bar ============================================== */
+
+.loadingAudioBar {
+  display: flex;
+  width: min(560px, 90vw);
+  min-height: 108px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(
+    135deg,
+    rgba(94, 170, 255, 0.42) 0%,
+    rgba(70, 90, 220, 0.28) 45%,
+    rgba(94, 170, 255, 0.32) 100%
+  );
+}
+
+.loadingAudioVizHalf {
+  flex: 0 0 50%;
+  min-width: 0;
+  padding: 1px 0 1px 1px;
+  border-radius: 11px 0 0 11px;
+  background: transparent;
+  animation: none;
+}
+
+.loadingAudioVizHalf::before {
+  display: none;
+}
+
+.loadingAudioTrackPane {
+  flex: 0 0 50%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 0.85rem 1rem;
+  background: rgba(3, 6, 14, 0.94);
+  border-left: 1px solid rgba(94, 150, 230, 0.24);
+}
+
+.loadingAudioTrackLabel {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(94, 150, 230, 0.58);
+}
+
+.loadingAudioVizWrap {
+  position: relative;
+  width: 100%;
+  padding: 1px;
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    rgba(94, 170, 255, 0.42) 0%,
+    rgba(70, 90, 220, 0.28) 45%,
+    rgba(94, 170, 255, 0.32) 100%
+  );
+}
+
+.loadingAudioViz {
+  display: block;
+  width: 100%;
+  height: 108px;
+  border-radius: 10px 0 0 10px;
+  background: #030508;
+}
+
+.loadingAudioVizIdle {
+  width: 100%;
+  height: 108px;
+  border-radius: 10px 0 0 10px;
+  background: #030508;
+}
+
+.loadingAudioVizSkeleton {
+  width: 100%;
+  height: 108px;
+  border-radius: 10px 0 0 10px;
+  background: #030508;
+  overflow: hidden;
+  position: relative;
+}
+
+.loadingAudioVizSkeletonBars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 5px;
+  height: 100%;
+  padding: 14px 12% 16px;
+  box-sizing: border-box;
+}
+
+.loadingAudioVizSkeletonBar {
+  flex: 1;
+  max-width: 10px;
+  height: 22%;
+  border-radius: 2px 2px 0 0;
+  background: rgba(70, 110, 190, 0.16);
+  animation: loadingVizSkeletonBar 1.2s ease-in-out infinite;
+}
+
+@keyframes loadingVizSkeletonBar {
+  0%,
+  100% {
+    height: 18%;
+    opacity: 0.45;
+  }
+  50% {
+    height: 42%;
+    opacity: 0.85;
+  }
+}
+
+.audioSpectrumViz {
+  display: block;
+  width: 100%;
+  background: #030508;
+}
+
+.loadingTrackRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.loadingTrackBtn {
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid rgba(94, 150, 230, 0.26);
+  background: rgba(6, 12, 24, 0.88);
+  color: rgba(170, 200, 255, 0.78);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.loadingTrackBtn:hover {
+  background: rgba(14, 28, 52, 0.95);
+  border-color: rgba(94, 170, 255, 0.45);
+  color: #eef2ff;
+}
+
+.loadingTrackBtnActive {
+  border-color: rgba(94, 170, 255, 0.72);
+  background: linear-gradient(180deg, rgba(24, 44, 88, 0.92) 0%, rgba(14, 24, 52, 0.95) 100%);
+  color: #fff;
 }
 
 /* =========================================================================== */
@@ -107,11 +306,10 @@ body {
   border: 0;
   padding: 0;
   cursor: pointer;
-  transition: opacity 0.15s ease, filter 0.15s ease;
+  transition: opacity 0.15s ease;
 }
 
 .hudGearBtn:hover {
-  filter: brightness(1.3);
 }
 
 .hudGearImg {
@@ -140,7 +338,6 @@ body {
   text-transform: uppercase;
   text-align: center;
   color: rgba(94, 170, 255, 0.75);
-  text-shadow: 0 0 6px rgba(59, 123, 255, 0.5);
 }
 
 .hudAmmoValue {
@@ -152,7 +349,6 @@ body {
   line-height: 1;
   text-align: center;
   color: rgba(94, 170, 255, 0.75);
-  text-shadow: 0 0 10px rgba(59, 123, 255, 0.6);
 }
 
 /* Section positions driven by CSS custom properties so they can be
@@ -164,8 +360,7 @@ body {
 .hudAmmoLow .hudAmmoLabel,
 .hudAmmoLow .hudAmmoValue {
   color: rgb(230, 50, 30);
-  text-shadow: 0 0 10px rgba(230, 50, 30, 0.7);
-  transition: color 0.4s ease, text-shadow 0.4s ease;
+  transition: color 0.4s ease;
 }
 
 /* Fire mode indicator — centred below ammo values */
@@ -203,7 +398,6 @@ body {
 .hudBulletIcon {
   height: clamp(0.7rem, 1.5vw, 1.1rem);
   width: auto;
-  filter: drop-shadow(0 0 3px rgba(94, 170, 255, 0.5));
 }
 
 .hudFireModeLabel {
@@ -212,16 +406,14 @@ body {
   font-weight: 700;
   letter-spacing: 0.15em;
   color: rgba(94, 170, 255, 0.75);
-  text-shadow: 0 0 6px rgba(59, 123, 255, 0.5);
 }
 
 .hudFireModeActive .hudFireModeLabel {
   color: #e8eeff;
-  text-shadow: 0 0 8px rgba(94, 170, 255, 0.7);
 }
 
 .hudHealthOverload {
-  animation: healthShake var(--shake-speed, 0.6s) ease-in-out infinite, radioactiveGlow var(--radioactive-speed, 0.8s) ease-in-out infinite alternate !important;
+  animation: healthShake var(--shake-speed, 0.6s) ease-in-out infinite !important;
 }
 
 @keyframes healthShake {
@@ -265,11 +457,10 @@ body {
 
 .hudHealthLivesValue {
   font-family: var(--font-futuristic), "Orbitron", "Eurostile", "Rajdhani", sans-serif;
-  font-size: var(--hb-lives-size, clamp(0.6rem, 1.6vw, 1rem));
+  font-size: var(--hb-lives-size, clamp(0.45rem, 1.05vw, 0.72rem));
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: #5eaaff;
-  text-shadow: 0 0 10px rgba(59, 123, 255, 0.7);
   letter-spacing: 0.06em;
 }
 
@@ -297,7 +488,7 @@ body {
     100% var(--hb-corner, 3px),
     calc(100% - var(--hb-corner, 3px)) 0%
   );
-  transition: width 3s ease, background 3s ease, box-shadow 3s ease;
+  transition: width 3s ease, background 3s ease;
   overflow: hidden;
   position: relative;
 }
@@ -382,11 +573,18 @@ body {
   text-transform: uppercase;
 }
 
+.hudMissionLevel {
+  font-size: clamp(0.58rem, 1.15vw, 0.82rem);
+  font-weight: 700;
+  color: rgba(220, 235, 255, 0.95);
+  text-shadow: 0 0 10px rgba(59, 123, 255, 0.45);
+  margin-bottom: 0.15em;
+}
+
 .hudMissionObjective {
   font-size: clamp(0.5rem, 1vw, 0.72rem);
   font-weight: 700;
   color: rgba(94, 170, 255, 0.85);
-  text-shadow: 0 0 8px rgba(59, 123, 255, 0.5);
   margin-bottom: 0.2em;
 }
 
@@ -400,7 +598,6 @@ body {
   font-size: clamp(0.42rem, 0.85vw, 0.62rem);
   font-weight: 500;
   color: rgba(94, 170, 255, 0.6);
-  text-shadow: 0 0 6px rgba(59, 123, 255, 0.3);
 }
 
 .hudMissionStat strong {
@@ -414,6 +611,8 @@ body {
   inset: 0;
   z-index: 10;
   pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
   background: radial-gradient(
     ellipse at center,
     transparent 15%,
@@ -423,47 +622,13 @@ body {
     rgba(120, 0, 0, 0.88) 88%,
     rgba(60, 0, 0, 0.98) 100%
   );
-  transition: opacity 0.8s ease;
-  animation: vignetteFlicker 0.6s ease-in-out infinite alternate;
 }
-
-@keyframes vignetteFlicker {
-  0%   { filter: brightness(0.7) saturate(1.2); }
-  100% { filter: brightness(1.5) saturate(1.6); }
-}
-
-.hudHealthCritical {
-  animation: healthGlow 0.3s ease-in-out infinite alternate;
-}
-
-.hudHealthRadioactive {
-  animation: radioactiveGlow var(--radioactive-speed, 0.8s) ease-in-out infinite alternate;
-}
-
 
 @keyframes healthPulse {
   0%   { left: -40%; opacity: 0; }
   10%  { opacity: 1; }
   90%  { opacity: 1; }
   100% { left: 120%; opacity: 0; }
-}
-
-@keyframes healthGlow {
-  0% {
-    filter: brightness(1) drop-shadow(0 0 6px rgba(255, 20, 10, 0.7));
-  }
-  100% {
-    filter: brightness(1.5) drop-shadow(0 0 16px rgba(255, 30, 10, 1)) drop-shadow(0 0 32px rgba(255, 10, 0, 0.5));
-  }
-}
-
-@keyframes radioactiveGlow {
-  0% {
-    filter: brightness(1) drop-shadow(0 0 6px rgba(80, 255, 40, 0.6));
-  }
-  100% {
-    filter: brightness(1.3) drop-shadow(0 0 14px rgba(80, 255, 40, 0.9)) drop-shadow(0 0 28px rgba(40, 200, 20, 0.4));
-  }
 }
 
 .demoBtnGroup {
@@ -484,7 +649,6 @@ body {
   font-size: 0.8rem;
   font-weight: 700;
   cursor: pointer;
-  backdrop-filter: blur(4px);
 }
 
 .demoDamageBtn {
@@ -518,12 +682,11 @@ body {
   padding: 0.4rem 0.65rem;
   border-radius: 8px;
   border: 1px solid #3a3a48;
-  background: rgba(18, 18, 24, 0.82);
+  background: rgba(18, 18, 24, 0.96);
   color: #9898a8;
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
   font-family: inherit;
-  backdrop-filter: blur(6px);
 }
 
 .dayNightToggle {
@@ -535,11 +698,10 @@ body {
   padding: 0.4rem 0.7rem;
   border-radius: 8px;
   border: 1px solid #3a3a48;
-  background: rgba(18, 18, 24, 0.82);
+  background: rgba(18, 18, 24, 0.96);
   color: #d8d8e4;
   font-size: 0.8rem;
   font-family: inherit;
-  backdrop-filter: blur(6px);
   transition:
     background-color 0.15s ease,
     border-color 0.15s ease,
@@ -579,11 +741,10 @@ body {
 .sliderRow {
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
-  background: rgba(18, 18, 24, 0.82);
+  background: rgba(18, 18, 24, 0.96);
   border: 1px solid #3a3a48;
   font-size: 0.85rem;
   color: #d8d8e4;
-  backdrop-filter: blur(6px);
 }
 
 .settingRow {
@@ -640,12 +801,11 @@ body {
   padding: 0.5rem 0.9rem;
   border-radius: 8px;
   border: 1px solid #3a3a48;
-  background: rgba(18, 18, 24, 0.82);
+  background: rgba(18, 18, 24, 0.96);
   color: #e8e8ec;
   font-size: 0.85rem;
   font-family: inherit;
   cursor: pointer;
-  backdrop-filter: blur(6px);
 }
 
 .settingsBtn:hover {
@@ -660,7 +820,6 @@ body {
   align-items: center;
   justify-content: center;
   background: rgba(6, 6, 10, 0.72);
-  backdrop-filter: blur(4px);
 }
 
 .settingsModal {
@@ -792,9 +951,8 @@ body {
   width: 16rem;
   padding: 0.5rem 0.6rem;
   border-radius: 8px;
-  background: rgba(18, 18, 24, 0.92);
+  background: rgba(18, 18, 24, 0.98);
   border: 1px solid #3a3a48;
-  backdrop-filter: blur(8px);
   color: #d8d8e4;
   font-size: 0.8rem;
   display: flex;
@@ -1070,7 +1228,6 @@ body {
   border-radius: 50%;
   border: none;
   background: transparent;
-  box-shadow: none;
 }
 
 .hudCompassDial {
@@ -1094,10 +1251,9 @@ body {
   letter-spacing: 0.06em;
   color: rgba(94, 170, 255, 0.55);
   transform-origin: 50% 50%;
-  text-shadow: 0 0 4px rgba(59, 123, 255, 0.3);
 }
 
-.hudCompassN { color: #e8eeff; text-shadow: 0 0 6px rgba(94, 170, 255, 0.7); }
+.hudCompassN { color: #e8eeff; }
 .hudCompassE { transform: rotate(90deg); }
 .hudCompassS { transform: rotate(180deg); }
 .hudCompassW { transform: rotate(270deg); }
@@ -1112,7 +1268,6 @@ body {
   border-left: 3px solid transparent;
   border-right: 3px solid transparent;
   border-bottom: 5px solid #5eaaff;
-  filter: drop-shadow(0 0 3px rgba(94, 170, 255, 0.6));
 }
 
 /* === Radar — top left ===================================================== */
@@ -1161,23 +1316,19 @@ body {
   height: 8px;
   margin: -4px 0 0 -4px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgb(255, 200, 160) 0%, rgb(255, 100, 40) 35%, rgb(255, 40, 10) 65%, rgba(220, 0, 0, 0.7) 100%);
-  box-shadow:
-    0 0 4px rgba(255, 80, 30, 1),
-    0 0 12px rgba(255, 50, 20, 1),
-    0 0 22px rgba(255, 30, 10, 0.6);
+  background: rgb(255, 100, 40);
   transition: opacity 0.3s ease;
 }
 
 .radarCenter {
   position: absolute;
-  top: 50%; left: 50%;
+  top: 50%;
+  left: 50%;
   width: 5px;
   height: 5px;
   margin: -2.5px 0 0 -2.5px;
   border-radius: 50%;
   background: rgba(120, 200, 255, 0.9);
-  box-shadow: 0 0 5px rgba(94, 170, 255, 0.8);
 }
 
 .hudCompassBearing {
@@ -1192,7 +1343,6 @@ body {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
   color: #5eaaff;
-  text-shadow: 0 0 6px rgba(59, 123, 255, 0.5);
   pointer-events: none;
 }
 
@@ -1250,9 +1400,6 @@ body {
    * pushing the text up keeps it readable on top of the lighter band the
    * artwork has in the upper-mid area. */
   transform: translateY(-6vh);
-  text-shadow:
-    0 0 18px rgba(0, 0, 0, 0.85),
-    0 0 6px rgba(20, 0, 0, 0.95);
 }
 
 .deathOverlayTitle {
@@ -1265,7 +1412,6 @@ body {
   margin: 0;
   /* Slight glow so it reads as a holographic HUD element on top of the
    * warm blood tones underneath. */
-  filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.75));
 }
 
 .deathOverlayReason {
@@ -1308,48 +1454,228 @@ body {
 }
 
 /* ── Pickup overlay (power pack collect) ─────────────────────────── */
-.pickupOverlay {
+.pickupOverlayRow {
   position: fixed;
-  top: 50%;
+  top: 0;
   left: 50%;
-  transform: translate(-50%, -50%) translateY(60vh) scale(0.4);
-  opacity: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: clamp(0.35rem, 1.5vw, 1rem);
+  padding-top: max(0.25rem, env(safe-area-inset-top, 0px));
+  max-width: 100vw;
   pointer-events: none;
   z-index: 80;
-  transition: opacity 0.3s ease-out, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.pickupOverlay--visible {
-  opacity: 1;
-  transform: translate(-50%, -50%) translateY(0) scale(1);
-}
-
-.pickupOverlay--exit {
+.pickupOverlayCard {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   opacity: 0;
-  transform: translate(-50%, -50%) translateY(0) scale(1.1);
-  transition: opacity 0.4s ease-in, transform 0.4s ease-in;
+  transform: translateY(-1.25rem) scale(0.35);
+  transform-origin: top center;
+  transition:
+    opacity 0.35s ease-out,
+    transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pickupOverlayCard--visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.pickupOverlayCard--exit {
+  opacity: 0;
+  transform: translateY(-0.75rem) scale(0.45);
+  transition:
+    opacity 0.4s ease-in,
+    transform 0.45s cubic-bezier(0.4, 0, 1, 1);
+}
+
+.pickupOverlayCard--textOnly .pickupOverlay3DLabel {
+  font-size: clamp(14px, 2.2vw, 26px);
+  letter-spacing: 2px;
+  margin: 0;
+  max-width: none;
+  padding: 0.35rem 0.75rem;
 }
 
 .pickupOverlayImg {
-  width: clamp(200px, 32vw, 460px);
+  width: clamp(120px, 18vw, 200px);
   height: auto;
 }
 
 .pickupOverlay3DLabel {
+  flex: 0 0 auto;
+  width: 100%;
   font-family: 'Segoe UI', sans-serif;
-  font-size: clamp(18px, 3vw, 32px);
+  font-size: clamp(11px, 1.4vw, 18px);
   font-weight: 700;
   color: #fff;
-  text-shadow: 0 0 12px rgba(60, 180, 255, 0.8), 0 2px 6px rgba(0,0,0,0.7);
   text-align: center;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
   text-transform: uppercase;
-  margin-bottom: 8px;
+  margin: 0 0 0.35rem;
+  line-height: 1.15;
+  max-width: none;
+  transition:
+    font-size 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+    margin 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+    letter-spacing 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.35s ease-out,
+    transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center center;
+}
+
+.pickupOverlayCard:not(.pickupOverlayCard--visible):not(.pickupOverlayCard--exit) .pickupOverlay3DLabel {
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+.pickupOverlayCard--visible .pickupOverlay3DLabel {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.pickupOverlayCard--exit .pickupOverlay3DLabel {
+  opacity: 0;
+  transform: scale(0.7);
+}
+
+.pickupOverlay3DCanvas {
+  flex: 0 0 auto;
+  width: clamp(120px, 16vw, 200px);
+  height: clamp(120px, 16vw, 200px);
+  margin: 0 auto;
+  line-height: 0;
+  transform: scale(0.25);
+  transform-origin: center center;
+  transition:
+    width 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+    height 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.35s ease-out;
+}
+
+.pickupOverlayCard--visible .pickupOverlay3DCanvas {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.pickupOverlayCard--exit .pickupOverlay3DCanvas {
+  transform: scale(0.55);
+  opacity: 0;
+  transition:
+    width 0.45s cubic-bezier(0.4, 0, 1, 1),
+    height 0.45s cubic-bezier(0.4, 0, 1, 1),
+    transform 0.45s cubic-bezier(0.4, 0, 1, 1),
+    opacity 0.35s ease-in;
+}
+
+.pickupOverlayRow:has(> .pickupOverlayCard:only-child) .pickupOverlay3DLabel {
+  font-size: clamp(14px, 2.2vw, 26px);
+  letter-spacing: 2px;
+  margin: 0 0 0.5rem;
+}
+
+.pickupOverlayRow:has(> .pickupOverlayCard:only-child) .pickupOverlay3DCanvas {
+  width: clamp(280px, 42vw, 480px);
+  height: clamp(280px, 42vw, 480px);
 }
 
 .pickupOverlay3DCanvas canvas {
   display: block;
+  width: 100%;
+  height: 100%;
   margin: 0 auto;
+}
+
+/* === Bottom-left walk / sprint power =================================== */
+.hudWalkPower {
+  position: fixed;
+  left: 2.4rem;
+  bottom: 2.2rem;
+  z-index: 15;
+  width: min(14rem, 32vw);
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.hudWalkPowerLabel {
+  display: block;
+  font-family: var(--font-futuristic), "Orbitron", "Eurostile", "Rajdhani", sans-serif;
+  font-size: clamp(0.55rem, 1.1vw, 0.72rem);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(180, 210, 255, 0.85);
+  margin-bottom: 0.35rem;
+}
+
+.hudWalkPowerTrack {
+  /* Match health bar fill track height (33.5% of health_bar.png frame). */
+  position: relative;
+  height: calc(min(22rem, 36vw) * 543 / 3185 * 0.335);
+  min-height: 8px;
+  background: rgba(8, 10, 16, 0.85);
+  border: 1px solid rgba(94, 170, 255, 0.15);
+  overflow: hidden;
+}
+
+.hudWalkPowerRadioactive .hudWalkPowerFill::after {
+  animation-duration: var(--radioactive-speed, 0.6s);
+}
+
+.hudWalkPowerOverload {
+  animation: healthShake var(--shake-speed, 0.6s) ease-in-out infinite !important;
+}
+
+.hudWalkPowerFill {
+  --power-pct: 1;
+  --pulse-speed: calc(0.6s + 1.8s * var(--power-pct));
+  height: 100%;
+  position: relative;
+  background: transparent;
+  clip-path: polygon(
+    var(--hb-corner, 3px) 0%,
+    0% var(--hb-corner, 3px),
+    0% calc(100% - var(--hb-corner, 3px)),
+    var(--hb-corner, 3px) 100%,
+    calc(100% - var(--hb-corner, 3px)) 100%,
+    100% calc(100% - var(--hb-corner, 3px)),
+    100% var(--hb-corner, 3px),
+    calc(100% - var(--hb-corner, 3px)) 0%
+  );
+  transition: width 0.15s linear;
+  overflow: hidden;
+}
+
+.hudWalkPowerRadioactiveLayer {
+  transition: opacity 0.6s ease;
+}
+
+.hudWalkPowerFill::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -40%;
+  width: 25%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.25) 40%,
+    rgba(255, 255, 255, 0.45) 50%,
+    rgba(255, 255, 255, 0.25) 60%,
+    transparent 100%
+  );
+  animation: healthPulse var(--pulse-speed, 2.4s) ease-in-out infinite;
 }
 
 .hudSecondWeapon {
@@ -1359,16 +1685,36 @@ body {
   z-index: 15;
   pointer-events: auto;
   cursor: pointer;
+  transform: translate(var(--grenade-frame-x, 17px), var(--grenade-frame-y, 15px));
+}
+
+.hudWeaponSlots {
+  position: relative;
+  width: var(--grenade-frame-w, min(12.3rem, 27.5vw));
+  --weapon-slot-h: calc(var(--grenade-frame-w, min(12.3rem, 27.5vw)) * 180 / 600);
+  min-height: var(--weapon-slot-h);
+  overflow: visible;
+  transform: scale(var(--grenade-frame-scale, 1));
+  transform-origin: bottom right;
 }
 
 /* PNG frame (`/ui/second-weapon.png`, 600×180) is the background. */
 .hudSecondWeaponFrame {
-  position: relative;
-  width: var(--grenade-frame-w, min(11.9rem, 27.5vw));
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 100%;
   aspect-ratio: 600 / 180;
   background: url("/ui/second-weapon.png") center / 100% 100% no-repeat;
-  transform: scale(var(--grenade-frame-scale, 1));
   transform-origin: bottom right;
+  transform: translate(var(--slot-x, 0px), var(--slot-y, 0px))
+    scale(var(--slot-scale, 1));
+  z-index: var(--slot-z, 1);
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hudSecondWeaponFrame--selected {
+  z-index: 4;
 }
 
 .hudSecondWeaponKey {
@@ -1384,11 +1730,10 @@ body {
   font-size: clamp(0.94rem, 2vw, 1.25rem);
   font-weight: 700;
   letter-spacing: 0.04em;
-  transform: translate(var(--grenade-key-x, 0px), var(--grenade-key-y, 0px))
-    scale(var(--grenade-key-scale, 1));
+  transform: translate(var(--grenade-key-x, 2px), var(--grenade-key-y, 0px))
+    scale(var(--grenade-key-scale, 1.49));
   transform-origin: center;
   color: #7ec8ff;
-  text-shadow: 0 0 8px rgba(94, 170, 255, 0.85);
 }
 
 .hudSecondWeaponBody {
@@ -1409,10 +1754,14 @@ body {
   width: clamp(1.25rem, 2.5vw, 1.7rem);
   height: clamp(1.25rem, 2.5vw, 1.7rem);
   object-fit: contain;
-  transform: translate(var(--grenade-icon-x, 0px), var(--grenade-icon-y, 0px))
-    scale(var(--grenade-icon-scale, 1));
+  transform: translate(var(--grenade-icon-x, 11px), var(--grenade-icon-y, 1px))
+    scale(var(--grenade-icon-scale, 0.91));
   transform-origin: center left;
-  opacity: 0.92;
+}
+
+.hudSecondWeaponIcon--placeholder {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .hudSecondWeaponLabel {
@@ -1423,11 +1772,10 @@ body {
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  transform: translate(var(--grenade-label-x, 0px), var(--grenade-label-y, 0px))
+  transform: translate(var(--grenade-label-x, -13px), var(--grenade-label-y, 10px))
     scale(var(--grenade-label-scale, 1));
   transform-origin: right top;
   color: rgba(180, 210, 240, 0.85);
-  text-shadow: 0 0 6px rgba(94, 170, 255, 0.35);
 }
 
 .hudSecondWeaponCount {
@@ -1439,26 +1787,22 @@ body {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
   line-height: 1;
-  transform: translate(var(--grenade-count-x, 0px), var(--grenade-count-y, 0px))
-    scale(var(--grenade-count-scale, 1));
+  transform: translate(var(--grenade-count-x, -10px), var(--grenade-count-y, -6px))
+    scale(var(--grenade-count-scale, 1.15));
   transform-origin: right bottom;
   color: #8fd0ff;
-  text-shadow: 0 0 10px rgba(59, 123, 255, 0.65);
 }
 
 .hudSecondWeaponEmpty .hudSecondWeaponKey,
 .hudSecondWeaponEmpty .hudSecondWeaponCount {
   color: rgb(255, 90, 70);
-  text-shadow: 0 0 10px rgba(255, 60, 40, 0.75);
 }
 
 .hudSecondWeaponEmpty .hudSecondWeaponIcon {
-  opacity: 0.55;
-  filter: saturate(0.4) sepia(1) hue-rotate(-15deg);
+  opacity: 0.65;
 }
 
 .hudSecondWeaponEmpty {
-  filter: none;
 }
 
 .crosshairVisible {
@@ -1499,9 +1843,8 @@ body {
   overflow-y: auto;
   padding: 0.65rem;
   border-radius: 10px;
-  background: rgba(18, 18, 24, 0.88);
+  background: rgba(18, 18, 24, 0.98);
   border: 1px solid #3a3a48;
-  backdrop-filter: blur(8px);
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -1526,14 +1869,86 @@ body {
   pointer-events: auto;
 }
 
+.devTuneStack {
+  position: fixed;
+  top: 0.65rem;
+  left: 0.65rem;
+  right: 0.65rem;
+  z-index: 20;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+  pointer-events: none;
+  max-height: calc(100vh - 1.3rem);
+  overflow-y: auto;
+}
+
+.devTuneStack > * {
+  pointer-events: auto;
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  flex: 0 1 auto;
+}
+
+.devTuneStack .weaponTunePanel,
+.devTuneStack .sunTunePanel,
+.devTuneStack .stairTunePanel,
+.devTuneStack .walkBobTunePanel {
+  max-height: min(70vh, calc(100vh - 2rem));
+  overflow-y: auto;
+}
+
+.hudTunePanel--inDevStack {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: min(16rem, calc(100vw - 2rem));
+  max-height: min(70vh, calc(100vh - 2rem));
+  overflow-y: auto;
+}
+
+.hudTunePanel--wide {
+  width: min(42rem, calc(100vw - 2rem));
+}
+
+.hudTuneBody--row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.hudTuneBody--row .hudTuneGroup {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.settingsGroupLabel {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9898a8;
+}
+
+.settingsGroupLabel:first-child {
+  margin-top: 0;
+}
+
 .sunTunePanel,
 .stairTunePanel,
 .walkBobTunePanel {
   padding: 0.65rem;
   border-radius: 10px;
-  background: rgba(18, 18, 24, 0.88);
+  background: rgba(18, 18, 24, 0.98);
   border: 1px solid #3a3a48;
-  backdrop-filter: blur(8px);
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
