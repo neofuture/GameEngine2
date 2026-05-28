@@ -1967,6 +1967,7 @@ body {
 .devTuneStack .sunTunePanel,
 .devTuneStack .stairTunePanel,
 .devTuneStack .walkBobTunePanel,
+.devTuneStack .stairWalkTunePanel,
 .devTuneStack .hudBarTunePanel {
   max-height: min(70vh, calc(100vh - 2rem));
   overflow-y: auto;
@@ -2068,7 +2069,8 @@ body {
 
 .sunTunePanel,
 .stairTunePanel,
-.walkBobTunePanel {
+.walkBobTunePanel,
+.stairWalkTunePanel {
   padding: 0.65rem;
   border-radius: 10px;
   background: rgba(18, 18, 24, 0.98);
@@ -2124,7 +2126,8 @@ body {
 }
 
 .stairTunePanel,
-.walkBobTunePanel {
+.walkBobTunePanel,
+.stairWalkTunePanel {
   width: min(17.5rem, calc(100vw - 2rem));
 }
 
@@ -2142,7 +2145,8 @@ body {
 }
 
 .stairTunePanel .poseControl,
-.walkBobTunePanel .poseControl {
+.walkBobTunePanel .poseControl,
+.stairWalkTunePanel .poseControl {
   padding: 0.35rem 0.45rem;
 }
 

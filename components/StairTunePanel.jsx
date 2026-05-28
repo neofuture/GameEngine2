@@ -5,6 +5,7 @@ import {
   STAIRS_STEP_RISE,
   STAIRS_STEP_RUN,
   STAIRS_TOTAL_RISE,
+  STAIRS_EFFECTIVE_TOTAL_RISE,
   STAIRS_TOTAL_RUN,
   STAIRS_WIDTH,
   STAIR_POS_MAX,
@@ -172,7 +173,8 @@ export default function StairTunePanel({
       />
       <p className="stairTuneHint">
         Fixed flight · {STAIRS_STEP_COUNT} steps · {STAIRS_WIDTH.toFixed(2)} m wide · rise{" "}
-        {STAIRS_TOTAL_RISE.toFixed(2)} m · run {STAIRS_TOTAL_RUN.toFixed(2)} m · anchor = bottom
+        {STAIRS_EFFECTIVE_TOTAL_RISE.toFixed(2)} m ({STAIRS_TOTAL_RISE.toFixed(2)} m steps + top) · run{" "}
+        {STAIRS_TOTAL_RUN.toFixed(2)} m · anchor = bottom
         of first tread · 0° faces +Z · floor Y ≈ {floorDeckY.toFixed(3)} m · catwalk ≈{" "}
         {catwalkDeckY.toFixed(3)} m · ± nudge{" "}
         {STAIR_NUDGE_STEP} m / {STAIR_ROTATION_NUDGE}°

@@ -117,6 +117,7 @@ import SunTunePanel from "@/components/SunTunePanel";
 import StairTunePanel from "@/components/StairTunePanel";
 import HemisphereTunePanel from "@/components/HemisphereTunePanel";
 import WalkBobTunePanel from "@/components/WalkBobTunePanel";
+import StairWalkTunePanel from "@/components/StairWalkTunePanel";
 import HudBarTunePanel from "@/components/HudBarTunePanel";
 import TargetPoseTunePanel from "@/components/TargetPoseTunePanel";
 import LevelObjectTunePanel from "@/components/LevelObjectTunePanel";
@@ -161,6 +162,14 @@ import {
   saveWalkBobTuneEnabled,
   saveWalkBobTuning,
 } from "@/lib/WalkBobTuning";
+import {
+  DEFAULT_STAIR_WALK_TUNING,
+  loadStairWalkTuneEnabled,
+  loadStairWalkTuning,
+  normalizeStairWalkTuning,
+  saveStairWalkTuneEnabled,
+  saveStairWalkTuning,
+} from "@/lib/StairWalkTuning";
 import {
   DEFAULT_HUD_BAR_TUNING,
   loadHudBarTuneEnabled,
@@ -549,6 +558,7 @@ export default function FpsGame() {
   const [sunIsDay, setSunIsDay] = useState(() => loadSunDayMode());
   const initialStairTuning = loadStairTuning();
   const initialWalkBobTuning = loadWalkBobTuning();
+  const initialStairWalkTuning = loadStairWalkTuning();
   const [stairX, setStairX] = useState(initialStairTuning.position.x);
   const [stairY, setStairY] = useState(initialStairTuning.position.y);
   const [stairZ, setStairZ] = useState(initialStairTuning.position.z);
@@ -562,9 +572,11 @@ export default function FpsGame() {
   });
   const [stairsTuneEnabled, setStairsTuneEnabled] = useState(false);
   const [walkBobTuneEnabled, setWalkBobTuneEnabled] = useState(false);
+  const [stairWalkTuneEnabled, setStairWalkTuneEnabled] = useState(false);
   const [hudBarTuneEnabled, setHudBarTuneEnabled] = useState(false);
   const [hudBarLayout, setHudBarLayout] = useState(() => loadHudBarTuning());
   const [walkBobTuning, setWalkBobTuning] = useState(initialWalkBobTuning);
+  const [stairWalkTuning, setStairWalkTuning] = useState(initialStairWalkTuning);
   const [sunTuneEnabled, setSunTuneEnabled] = useState(false);
   const [hemiTuneEnabled, setHemiTuneEnabled] = useState(false);
   const [floorDeckY, setFloorDeckY] = useState(0);
@@ -650,6 +662,7 @@ export default function FpsGame() {
   const rebuildStairsRef = useRef(null);
   const stairParamsRef = useRef(initialStairTuning);
   const walkBobTuningRef = useRef(initialWalkBobTuning);
+  const stairWalkTuningRef = useRef(initialStairWalkTuning);
   const sunRef = useRef(null);
   const moonRef = useRef(null);
   const sunBaseIntensityRef = useRef(2.85);
@@ -771,6 +784,7 @@ export default function FpsGame() {
   };
   weaponPoseModeRef.current = weaponPoseMode;
   walkBobTuningRef.current = walkBobTuning;
+  stairWalkTuningRef.current = stairWalkTuning;
   bindingsRef.current = bindings;
   rebindActionRef.current = rebindAction;
   fireModeRef.current = fireMode;
@@ -852,6 +866,7 @@ export default function FpsGame() {
     const hemiEnabled = localStorage.getItem(HEMI_TUNE_ENABLED_KEY) === "true";
     const stairsEnabled = localStorage.getItem(STAIRS_TUNE_ENABLED_KEY) === "true";
     const walkBobEnabled = loadWalkBobTuneEnabled();
+    const stairWalkEnabled = loadStairWalkTuneEnabled();
     const hudBarEnabled = loadHudBarTuneEnabled();
     setInvertYLook(storedInvert);
     const storedScale = loadRenderScale();
@@ -868,6 +883,7 @@ export default function FpsGame() {
     setHemiTuneEnabled(hemiEnabled);
     setStairsTuneEnabled(stairsEnabled);
     setWalkBobTuneEnabled(walkBobEnabled);
+    setStairWalkTuneEnabled(stairWalkEnabled);
     setHudBarTuneEnabled(hudBarEnabled);
     setHudBarLayout(loadHudBarTuning());
     setKeyboardLook(kbLook);
@@ -904,6 +920,9 @@ export default function FpsGame() {
     stairParamsRef.current = params;
     saveStairTuning(params);
     rebuildStairsRef.current?.(params);
+    applyDayNightRef.current?.(dayNightCurNightnessRef.current);
+    refitSunShadowRef.current?.();
+    refitMoonShadowRef.current?.();
   };
   settingsOpenRef.current = settingsOpen;
   controlsOpenRef.current = controlsOpen;
@@ -1160,18 +1179,24 @@ export default function FpsGame() {
         // the two stored settings so the sky/ground hemi color eases too.
         const dayHemi = hemiDayRef.current;
         const nightHemi = hemiNightRef.current;
-        applyHemisphereSettings(hemiRef.current, {
-          temperature: THREE.MathUtils.lerp(
-            dayHemi.temperature,
-            nightHemi.temperature,
-            nightness
-          ),
-          intensity: THREE.MathUtils.lerp(
-            dayHemi.intensity,
-            nightHemi.intensity,
-            nightness
-          ),
-        });
+        const hemiIntensity = THREE.MathUtils.lerp(
+          dayHemi.intensity,
+          nightHemi.intensity,
+          nightness
+        );
+        const shelteredHemiMul = sheltered ? 0.85 : 1;
+        applyHemisphereSettings(
+          hemiRef.current,
+          {
+            temperature: THREE.MathUtils.lerp(
+              dayHemi.temperature,
+              nightHemi.temperature,
+              nightness
+            ),
+            intensity: hemiIntensity * shelteredHemiMul,
+          },
+          { indoor: sheltered }
+        );
       };
       refitSunShadowRef.current = () => {
         if (!level?.group) return;
@@ -1237,6 +1262,8 @@ export default function FpsGame() {
         getStandEyeHeight: () => playerHeightRef.current,
         getWalkBobTuning: () =>
           resolveWalkBobTuning(walkBobTuningRef.current),
+        getStairWalkTuning: () =>
+          normalizeStairWalkTuning(stairWalkTuningRef.current),
         getStaminaMax: () => {
           const hp = playerHealthRef.current;
           return hp > 100 ? hp / 100 : 1;
@@ -1249,7 +1276,7 @@ export default function FpsGame() {
           let volume = 0.5;
           if (crouching) volume *= 0.5;
           else if (sprinting) volume *= 1.1;
-          if (onStairs) volume *= 0.88;
+          if (onStairs) volume *= stairWalkTuningRef.current.footstepVolumeScale;
           volume *= THREE.MathUtils.clamp(speedNorm, 0.55, 1.15);
           sounds.playFootstep({ volume, playbackRate });
         },
@@ -1967,6 +1994,7 @@ export default function FpsGame() {
             moveSpeed: player.getHorizontalSpeed(),
             onStairs: player.isOnStairs(),
             walkBobTuning: resolveWalkBobTuning(walkBobTuningRef.current),
+            stairWalkTuning: normalizeStairWalkTuning(stairWalkTuningRef.current),
           });
         }
 
@@ -3124,6 +3152,24 @@ export default function FpsGame() {
               <label className="settingRow">
                 <input
                   type="checkbox"
+                  checked={stairWalkTuneEnabled}
+                  disabled={!arenaHasStairs}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setStairWalkTuneEnabled(checked);
+                    saveStairWalkTuneEnabled(checked);
+                  }}
+                />
+                Stair walk tuning
+                {!arenaHasStairs && (
+                  <span className="settingsHint" style={{ marginLeft: "0.4rem" }}>
+                    (no stairs in this arena)
+                  </span>
+                )}
+              </label>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
                   checked={stairsTuneEnabled}
                   disabled={!arenaHasStairs}
                   onChange={(e) => {
@@ -3494,6 +3540,29 @@ export default function FpsGame() {
             onClose={() => {
               setHudBarTuneEnabled(false);
               saveHudBarTuneEnabled(false);
+            }}
+          />
+        )}
+        {arenaHasStairs && stairWalkTuneEnabled && (
+          <StairWalkTunePanel
+            tuning={stairWalkTuning}
+            onChange={(key, value) => {
+              setStairWalkTuning((prev) => {
+                const next = normalizeStairWalkTuning({ ...prev, [key]: value });
+                saveStairWalkTuning(next);
+                stairWalkTuningRef.current = next;
+                return next;
+              });
+            }}
+            onReset={() => {
+              const next = { ...DEFAULT_STAIR_WALK_TUNING };
+              saveStairWalkTuning(next);
+              stairWalkTuningRef.current = next;
+              setStairWalkTuning(next);
+            }}
+            onClose={() => {
+              setStairWalkTuneEnabled(false);
+              saveStairWalkTuneEnabled(false);
             }}
           />
         )}
