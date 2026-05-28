@@ -1,0 +1,47 @@
+{
+  "pack": "Concrete bullet hole decals with real PNG alpha",
+  "format": "PNG RGBA",
+  "usage": "Use as transparent decals on concrete walls or concrete props.",
+  "files": [
+    {
+      "file": "01_concrete_bullet_hole_alpha.png",
+      "description": "Concrete bullet hole decal variation 1, transparent alpha channel.",
+      "dimensions": [
+        1032,
+        1113
+      ]
+    },
+    {
+      "file": "02_concrete_bullet_hole_alpha.png",
+      "description": "Concrete bullet hole decal variation 2, transparent alpha channel.",
+      "dimensions": [
+        1188,
+        1181
+      ]
+    },
+    {
+      "file": "03_concrete_bullet_hole_alpha.png",
+      "description": "Concrete bullet hole decal variation 3, transparent alpha channel.",
+      "dimensions": [
+        897,
+        1067
+      ]
+    },
+    {
+      "file": "04_concrete_bullet_hole_alpha.png",
+      "description": "Concrete bullet hole decal variation 4, transparent alpha channel.",
+      "dimensions": [
+        1066,
+        1166
+      ]
+    },
+    {
+      "file": "05_concrete_bullet_hole_alpha.png",
+      "description": "Concrete bullet hole decal variation 5, transparent alpha channel.",
+      "dimensions": [
+        1070,
+        1216
+      ]
+    }
+  ]
+}

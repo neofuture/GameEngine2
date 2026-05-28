@@ -17,7 +17,7 @@
     "cornerRadius": 0.12,
     "cornerSegments": 4
   },
-  "playerBoundsInset": 0.35,
+  "wallStandoff": 0.5,
   "doorways": [
     {
       "wall": "north",
@@ -88,6 +88,14 @@
     "maxHealth": 30,
     "respawnDelay": 2.5,
     "repairPerSecond": 0.63,
-    "repairDelayAfterHit": 1.25
+    "repairDelayAfterHit": 1.25,
+    "spawnPoints": [
+      {
+        "x": -8,
+        "z": 4.0,
+        "yaw": 0,
+        "note": "On floor north of hole (-8, 2) — shoot to topple onto floor then slide into hole"
+      }
+    ]
   }
 }

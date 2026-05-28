@@ -110,48 +110,36 @@ body {
 
 .loadingAudioBar {
   display: flex;
-  width: min(560px, 90vw);
-  min-height: 108px;
-  border-radius: 12px;
-  overflow: hidden;
-  background: linear-gradient(
-    135deg,
-    rgba(94, 170, 255, 0.42) 0%,
-    rgba(70, 90, 220, 0.28) 45%,
-    rgba(94, 170, 255, 0.32) 100%
-  );
-}
-
-.loadingAudioVizHalf {
-  flex: 0 0 50%;
-  min-width: 0;
-  padding: 1px 0 1px 1px;
-  border-radius: 11px 0 0 11px;
-  background: transparent;
-  animation: none;
-}
-
-.loadingAudioVizHalf::before {
-  display: none;
-}
-
-.loadingAudioTrackPane {
-  flex: 0 0 50%;
-  display: flex;
   flex-direction: column;
-  justify-content: center;
   gap: 0.55rem;
-  padding: 0.85rem 1rem;
-  background: rgba(3, 6, 14, 0.94);
-  border-left: 1px solid rgba(94, 150, 230, 0.24);
+  width: min(720px, 92vw);
 }
 
-.loadingAudioTrackLabel {
-  font-size: 0.62rem;
+.loadingAudioVizHeader {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 0.15rem;
+}
+
+.loadingMusicToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(94, 150, 230, 0.58);
+  color: rgba(220, 230, 255, 0.82);
+  cursor: pointer;
+  user-select: none;
+}
+
+.loadingMusicToggle input {
+  width: 0.85rem;
+  height: 0.85rem;
+  accent-color: #5eaaff;
+  cursor: pointer;
 }
 
 .loadingAudioVizWrap {
@@ -170,22 +158,22 @@ body {
 .loadingAudioViz {
   display: block;
   width: 100%;
-  height: 108px;
-  border-radius: 10px 0 0 10px;
+  height: 168px;
+  border-radius: 10px;
   background: #030508;
 }
 
 .loadingAudioVizIdle {
   width: 100%;
-  height: 108px;
-  border-radius: 10px 0 0 10px;
+  height: 168px;
+  border-radius: 10px;
   background: #030508;
 }
 
 .loadingAudioVizSkeleton {
   width: 100%;
-  height: 108px;
-  border-radius: 10px 0 0 10px;
+  height: 168px;
+  border-radius: 10px;
   background: #030508;
   overflow: hidden;
   position: relative;
@@ -226,40 +214,6 @@ body {
   display: block;
   width: 100%;
   background: #030508;
-}
-
-.loadingTrackRow {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-}
-
-.loadingTrackBtn {
-  width: 100%;
-  padding: 0.45rem 0.75rem;
-  border-radius: 8px;
-  border: 1px solid rgba(94, 150, 230, 0.26);
-  background: rgba(6, 12, 24, 0.88);
-  color: rgba(170, 200, 255, 0.78);
-  font-size: 0.72rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-align: left;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.loadingTrackBtn:hover {
-  background: rgba(14, 28, 52, 0.95);
-  border-color: rgba(94, 170, 255, 0.45);
-  color: #eef2ff;
-}
-
-.loadingTrackBtnActive {
-  border-color: rgba(94, 170, 255, 0.72);
-  background: linear-gradient(180deg, rgba(24, 44, 88, 0.92) 0%, rgba(14, 24, 52, 0.95) 100%);
-  color: #fff;
 }
 
 /* =========================================================================== */
@@ -430,7 +384,7 @@ body {
   100% { transform: translate(0, 0); }
 }
 
-/* === Top-right health bar ================================================ */
+/* === Top-right health bar (mirrored vs top-left stamina) ================ */
 .hudHealthBar {
   position: fixed;
   top: 1rem;
@@ -438,21 +392,32 @@ body {
   z-index: 15;
   width: min(22rem, 36vw);
   aspect-ratio: 3185 / 543;
+  pointer-events: none;
+}
+
+.hudHealthBar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
   background-image: url("/ui/health_bar.png");
   background-size: 100% 100%;
   background-repeat: no-repeat;
+  transform: scaleX(-1);
   pointer-events: none;
+  z-index: 0;
 }
 
 .hudHealthLives {
   position: absolute;
-  left: var(--hb-lives-x, 4.5%);
+  left: auto;
+  right: var(--hb-lives-x, 4.5%);
   top: var(--hb-lives-y, 11.5%);
   width: 10%;
   height: 76%;
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 1;
 }
 
 .hudHealthLivesValue {
@@ -470,6 +435,7 @@ body {
   top: var(--hb-bar-y, 34%);
   width: var(--hb-bar-w, 76%);
   height: var(--hb-bar-h, 33.5%);
+  z-index: 1;
 }
 
 .hudHealthFill {
@@ -980,6 +946,22 @@ body {
   padding: 0 0.2rem;
 }
 
+.hudTuneReset {
+  margin-top: 0.45rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #3a3a48;
+  border-radius: 4px;
+  background: #1e1e28;
+  color: #c8c8d2;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.hudTuneReset:hover {
+  border-color: #5a5a6a;
+  color: #fff;
+}
+
 .hudPosGroup {
   border: 1px solid #2e2e3a;
   border-radius: 6px;
@@ -1270,11 +1252,12 @@ body {
   border-bottom: 5px solid #5eaaff;
 }
 
-/* === Radar — top left ===================================================== */
+/* === Radar — bottom left ================================================== */
 .hudRadar {
   position: fixed;
-  top: 0.6rem;
-  left: 0.6rem;
+  bottom: 1.5rem;
+  left: 1.5rem;
+  top: auto;
   z-index: 15;
   width: min(11rem, 22vw);
   height: min(11rem, 22vw);
@@ -1285,8 +1268,17 @@ body {
   position: relative;
   width: 100%;
   height: 100%;
-  background: url("/ui/radar_hud.png") center / contain no-repeat;
   overflow: hidden;
+}
+
+.radarRing::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("/ui/radar_hud.png") center / contain no-repeat;
+  transform: rotate(180deg);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .radarInner {
@@ -1294,6 +1286,7 @@ body {
   transform: translate(-50%, -50%);
   border-radius: 50%;
   overflow: hidden;
+  z-index: 1;
 }
 
 .radarSweepCanvas {
@@ -1454,7 +1447,37 @@ body {
 }
 
 /* ── Pickup overlay (power pack collect) ─────────────────────────── */
+@property --pickup-visible-scale {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+@property --pickup-canvas-size {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 152px;
+}
+
+@property --pickup-label-size {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 11px;
+}
+
+@property --pickup-row-pad {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0.25rem;
+}
+
 .pickupOverlayRow {
+  --pickup-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --pickup-layout: 0.55s var(--pickup-ease);
+  --pickup-visible-scale: 0.9;
+  --pickup-canvas-size: 152px;
+  --pickup-label-size: 11px;
+  --pickup-row-pad: 0.25rem;
   position: fixed;
   top: 0;
   left: 50%;
@@ -1465,10 +1488,37 @@ body {
   align-items: flex-start;
   justify-content: center;
   gap: clamp(0.35rem, 1.5vw, 1rem);
-  padding-top: max(0.25rem, env(safe-area-inset-top, 0px));
+  padding-top: max(var(--pickup-row-pad), env(safe-area-inset-top, 0px));
   max-width: 100vw;
   pointer-events: none;
   z-index: 80;
+  transition:
+    --pickup-visible-scale var(--pickup-layout),
+    --pickup-canvas-size var(--pickup-layout),
+    --pickup-label-size var(--pickup-layout),
+    --pickup-row-pad var(--pickup-layout),
+    gap var(--pickup-layout);
+}
+
+.pickupOverlayRow--single {
+  --pickup-visible-scale: 1.14;
+  --pickup-canvas-size: 178px;
+  --pickup-label-size: 13px;
+  --pickup-row-pad: 0.15rem;
+}
+
+.pickupOverlayRow--multi {
+  --pickup-visible-scale: 0.9;
+  --pickup-canvas-size: 152px;
+  --pickup-label-size: 11px;
+  --pickup-row-pad: 0.25rem;
+}
+
+/* Shared smooth fade / scale curve for enter, hold, exit */
+.pickupOverlayCard,
+.pickupOverlay3DLabel,
+.pickupOverlay3DCanvas {
+  --pickup-fade: var(--pickup-layout);
 }
 
 .pickupOverlayCard {
@@ -1478,24 +1528,24 @@ body {
   align-items: stretch;
   justify-content: flex-start;
   opacity: 0;
-  transform: translateY(-1.25rem) scale(0.35);
+  transform: translateY(-1.1rem) scale(calc(0.4 * var(--pickup-visible-scale)));
   transform-origin: top center;
   transition:
-    opacity 0.35s ease-out,
-    transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity var(--pickup-fade),
+    transform var(--pickup-fade);
 }
 
 .pickupOverlayCard--visible {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: translateY(0) scale(var(--pickup-visible-scale));
 }
 
 .pickupOverlayCard--exit {
   opacity: 0;
-  transform: translateY(-0.75rem) scale(0.45);
+  transform: translateY(-0.55rem) scale(calc(0.5 * var(--pickup-visible-scale)));
   transition:
-    opacity 0.4s ease-in,
-    transform 0.45s cubic-bezier(0.4, 0, 1, 1);
+    opacity var(--pickup-fade),
+    transform var(--pickup-fade);
 }
 
 .pickupOverlayCard--textOnly .pickupOverlay3DLabel {
@@ -1515,52 +1565,54 @@ body {
   flex: 0 0 auto;
   width: 100%;
   font-family: 'Segoe UI', sans-serif;
-  font-size: clamp(11px, 1.4vw, 18px);
+  font-size: var(--pickup-label-size);
   font-weight: 700;
   color: #fff;
   text-align: center;
   letter-spacing: 1px;
   text-transform: uppercase;
-  margin: 0 0 0.35rem;
-  line-height: 1.15;
+  margin: 0 0 0.06rem;
+  line-height: 1.1;
   max-width: none;
   transition:
-    font-size 0.55s cubic-bezier(0.16, 1, 0.3, 1),
-    margin 0.55s cubic-bezier(0.16, 1, 0.3, 1),
-    letter-spacing 0.55s cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 0.35s ease-out,
-    transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+    font-size var(--pickup-fade),
+    margin var(--pickup-fade),
+    letter-spacing var(--pickup-fade),
+    opacity var(--pickup-fade),
+    transform var(--pickup-fade);
   transform-origin: center center;
 }
 
 .pickupOverlayCard:not(.pickupOverlayCard--visible):not(.pickupOverlayCard--exit) .pickupOverlay3DLabel {
   opacity: 0;
-  transform: scale(0.6);
+  transform: scale(0.72);
 }
 
 .pickupOverlayCard--visible .pickupOverlay3DLabel {
   opacity: 1;
-  transform: scale(1);
+  transform: scale(1) translateY(0.12rem);
 }
 
 .pickupOverlayCard--exit .pickupOverlay3DLabel {
   opacity: 0;
-  transform: scale(0.7);
+  transform: scale(0.78);
 }
 
 .pickupOverlay3DCanvas {
   flex: 0 0 auto;
-  width: clamp(120px, 16vw, 200px);
-  height: clamp(120px, 16vw, 200px);
-  margin: 0 auto;
+  width: var(--pickup-canvas-size);
+  height: var(--pickup-canvas-size);
+  max-width: min(16.5vw, 196px);
+  max-height: min(16.5vw, 196px);
+  margin: -0.08rem auto 0;
   line-height: 0;
-  transform: scale(0.25);
+  transform: scale(0.35);
   transform-origin: center center;
   transition:
-    width 0.55s cubic-bezier(0.16, 1, 0.3, 1),
-    height 0.55s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.55s cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 0.35s ease-out;
+    width var(--pickup-fade),
+    height var(--pickup-fade),
+    transform var(--pickup-fade),
+    opacity var(--pickup-fade);
 }
 
 .pickupOverlayCard--visible .pickupOverlay3DCanvas {
@@ -1569,24 +1621,13 @@ body {
 }
 
 .pickupOverlayCard--exit .pickupOverlay3DCanvas {
-  transform: scale(0.55);
+  transform: scale(0.58);
   opacity: 0;
   transition:
-    width 0.45s cubic-bezier(0.4, 0, 1, 1),
-    height 0.45s cubic-bezier(0.4, 0, 1, 1),
-    transform 0.45s cubic-bezier(0.4, 0, 1, 1),
-    opacity 0.35s ease-in;
-}
-
-.pickupOverlayRow:has(> .pickupOverlayCard:only-child) .pickupOverlay3DLabel {
-  font-size: clamp(14px, 2.2vw, 26px);
-  letter-spacing: 2px;
-  margin: 0 0 0.5rem;
-}
-
-.pickupOverlayRow:has(> .pickupOverlayCard:only-child) .pickupOverlay3DCanvas {
-  width: clamp(280px, 42vw, 480px);
-  height: clamp(280px, 42vw, 480px);
+    width var(--pickup-fade),
+    height var(--pickup-fade),
+    transform var(--pickup-fade),
+    opacity var(--pickup-fade);
 }
 
 .pickupOverlay3DCanvas canvas {
@@ -1596,43 +1637,70 @@ body {
   margin: 0 auto;
 }
 
-/* === Bottom-left walk / sprint power =================================== */
-.hudWalkPower {
+/* === Top-left stamina bar ================================================= */
+.hudStaminaBar {
   position: fixed;
-  left: 2.4rem;
-  bottom: 2.2rem;
+  top: 1rem;
+  left: 1rem;
   z-index: 15;
-  width: min(14rem, 32vw);
+  width: min(22rem, 36vw);
+  aspect-ratio: 3185 / 543;
   pointer-events: none;
   visibility: hidden;
 }
 
-.hudWalkPowerLabel {
-  display: block;
-  font-family: var(--font-futuristic), "Orbitron", "Eurostile", "Rajdhani", sans-serif;
-  font-size: clamp(0.55rem, 1.1vw, 0.72rem);
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(180, 210, 255, 0.85);
-  margin-bottom: 0.35rem;
+.hudStaminaBar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/ui/health_bar.png");
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  z-index: 0;
 }
 
-.hudWalkPowerTrack {
-  /* Match health bar fill track height (33.5% of health_bar.png frame). */
-  position: relative;
-  height: calc(min(22rem, 36vw) * 543 / 3185 * 0.335);
-  min-height: 8px;
-  background: rgba(8, 10, 16, 0.85);
-  border: 1px solid rgba(94, 170, 255, 0.15);
-  overflow: hidden;
+.hudStaminaIcon {
+  position: absolute;
+  left: var(--sb-icon-x, 4.5%);
+  top: var(--sb-icon-y, 11.5%);
+  width: 10%;
+  height: 76%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
 }
 
-.hudWalkPowerRadioactive .hudWalkPowerFill::after {
+.hudStaminaFist {
+  width: 62%;
+  height: auto;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  filter: drop-shadow(0 0 5px rgba(94, 170, 255, 0.55));
+  pointer-events: none;
+}
+
+.hudStaminaTrack {
+  position: absolute;
+  left: var(--sb-bar-x, 18.5%);
+  top: var(--sb-bar-y, 34%);
+  width: var(--sb-bar-w, 76%);
+  height: var(--sb-bar-h, 33.5%);
+  z-index: 1;
+}
+
+.hudStaminaTrack .hudWalkPowerFill {
+  height: 100%;
+}
+
+.hudWalkPowerRadioactive.hudStaminaTrack .hudWalkPowerFill::after,
+.hudStaminaTrack.hudWalkPowerRadioactive .hudWalkPowerFill::after {
   animation-duration: var(--radioactive-speed, 0.6s);
 }
 
-.hudWalkPowerOverload {
+.hudWalkPowerOverload.hudStaminaTrack,
+.hudStaminaTrack.hudWalkPowerOverload {
   animation: healthShake var(--shake-speed, 0.6s) ease-in-out infinite !important;
 }
 
@@ -1898,7 +1966,8 @@ body {
 .devTuneStack .weaponTunePanel,
 .devTuneStack .sunTunePanel,
 .devTuneStack .stairTunePanel,
-.devTuneStack .walkBobTunePanel {
+.devTuneStack .walkBobTunePanel,
+.devTuneStack .hudBarTunePanel {
   max-height: min(70vh, calc(100vh - 2rem));
   overflow-y: auto;
 }
@@ -1927,6 +1996,61 @@ body {
 .hudTuneBody--row .hudTuneGroup {
   flex: 1 1 10rem;
   min-width: 0;
+}
+
+.hudTunePanel--bottomDock {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  max-width: none;
+  z-index: 90;
+  border-radius: 10px 10px 0 0;
+  border-bottom: none;
+  padding: 0.45rem 0.65rem max(0.5rem, env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -6px 28px rgba(0, 0, 0, 0.5);
+  background: rgba(12, 12, 18, 0.94);
+}
+
+.hudTunePanel--bottomDock .hudTuneHeader {
+  margin-bottom: 0.2rem;
+}
+
+.hudTunePanel--bottomDock .hudTuneBody {
+  max-height: min(34vh, 260px);
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.hudTunePanel--bottomDock .hudTuneBody--row {
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: max-content;
+  min-width: 100%;
+}
+
+.hudTunePanel--bottomDock .hudTuneBody--row .hudTuneGroup {
+  flex: 0 0 auto;
+  min-width: 10.5rem;
+  max-height: min(30vh, 220px);
+  overflow-y: auto;
+}
+
+.hudTunePanel--bottomDock .hudTuneGroup--layers {
+  min-width: 12.5rem;
+}
+
+.hudTuneLayerGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.05rem 0.4rem;
+}
+
+.hudTuneLayerRow {
+  font-size: 0.68rem;
+  margin: 0;
+  gap: 0.35rem;
 }
 
 .settingsGroupLabel {

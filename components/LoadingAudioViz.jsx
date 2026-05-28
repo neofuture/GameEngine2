@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import AudioSpectrumViz from "@/components/AudioSpectrumViz";
 
-const SKELETON_BARS = 14;
+const SKELETON_BARS = 20;
 
 function LoadingAudioVizSkeleton() {
   return (
@@ -22,14 +22,12 @@ function LoadingAudioVizSkeleton() {
 }
 
 export default function LoadingAudioViz({
-  tracks,
-  selectedTrackId,
-  onTrackSelect,
   getAnalyser,
   getBeatAnalyser,
   isMusicPreloaded,
   isLoadingMusicPlaying,
   musicEnabled,
+  onMusicEnabledChange,
   active,
 }) {
   const [vizLive, setVizLive] = useState(false);
@@ -55,7 +53,6 @@ export default function LoadingAudioViz({
   }, [
     active,
     musicEnabled,
-    selectedTrackId,
     getAnalyser,
     isMusicPreloaded,
     isLoadingMusicPlaying,
@@ -63,14 +60,27 @@ export default function LoadingAudioViz({
 
   return (
     <div className="loadingAudioBar">
-      <div className="loadingAudioVizWrap loadingAudioVizHalf">
+      <div className="loadingAudioVizHeader">
+        <label className="loadingMusicToggle">
+          <input
+            type="checkbox"
+            checked={musicEnabled}
+            onChange={(e) => {
+              e.stopPropagation();
+              onMusicEnabledChange?.(e.target.checked);
+            }}
+          />
+          Music
+        </label>
+      </div>
+      <div className="loadingAudioVizWrap">
         {vizLive ? (
           <AudioSpectrumViz
             getAnalyser={getAnalyser}
             getBeatAnalyser={getBeatAnalyser}
             musicEnabled={musicEnabled}
             active={active}
-            resetKey={selectedTrackId}
+            resetKey="loading"
             canvasClassName="loadingAudioViz"
             synthFallback={false}
           />
@@ -79,26 +89,6 @@ export default function LoadingAudioViz({
         ) : (
           <div className="loadingAudioVizIdle" aria-hidden="true" />
         )}
-      </div>
-      <div className="loadingAudioTrackPane">
-        <span className="loadingAudioTrackLabel">Track</span>
-        <div className="loadingTrackRow" role="radiogroup" aria-label="Music track">
-          {tracks.map((track) => (
-            <button
-              key={track.id}
-              type="button"
-              role="radio"
-              aria-checked={selectedTrackId === track.id}
-              className={`loadingTrackBtn${selectedTrackId === track.id ? " loadingTrackBtnActive" : ""}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onTrackSelect(track.id);
-              }}
-            >
-              {track.label}
-            </button>
-          ))}
-        </div>
       </div>
     </div>
   );

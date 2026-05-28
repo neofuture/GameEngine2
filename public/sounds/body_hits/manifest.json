@@ -1,0 +1,44 @@
+{
+  "source_file": "40135_357461_Brawl_-_Body_Fall-_Concrete-_Hard_stereo_normal.aac",
+  "source_duration_seconds": 7.36,
+  "detection_method": "short-time RMS threshold with merged impact regions",
+  "notes": "Each clip preserves a small pre-roll and natural tail; no loudness normalization was applied.",
+  "clips": [
+    {
+      "file": "body_hit_concrete_01.wav",
+      "active_start_seconds": 0.284,
+      "active_end_seconds": 0.853,
+      "export_start_seconds": 0.204,
+      "export_end_seconds": 1.203,
+      "duration_seconds": 0.999,
+      "format": "WAV, 44.1 kHz, 16-bit PCM, stereo"
+    },
+    {
+      "file": "body_hit_concrete_02.wav",
+      "active_start_seconds": 2.2,
+      "active_end_seconds": 2.995,
+      "export_start_seconds": 2.12,
+      "export_end_seconds": 3.345,
+      "duration_seconds": 1.225,
+      "format": "WAV, 44.1 kHz, 16-bit PCM, stereo"
+    },
+    {
+      "file": "body_hit_concrete_03.wav",
+      "active_start_seconds": 4.04,
+      "active_end_seconds": 4.557,
+      "export_start_seconds": 3.96,
+      "export_end_seconds": 4.907,
+      "duration_seconds": 0.947,
+      "format": "WAV, 44.1 kHz, 16-bit PCM, stereo"
+    },
+    {
+      "file": "body_hit_concrete_04.wav",
+      "active_start_seconds": 5.375,
+      "active_end_seconds": 6.142,
+      "export_start_seconds": 5.295,
+      "export_end_seconds": 6.492,
+      "duration_seconds": 1.196,
+      "format": "WAV, 44.1 kHz, 16-bit PCM, stereo"
+    }
+  ]
+}

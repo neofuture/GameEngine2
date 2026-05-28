@@ -43,14 +43,13 @@ import { createInput } from "@/lib/Input";
 import { createPlayerController } from "@/lib/PlayerController";
 import {
   createSoundManager,
-  MUSIC_TRACKS,
-  MUSIC_TRACK_KEY,
   DEFAULT_LEVEL_TRACK_ID,
   loadStoredLoadingTrackId,
 } from "@/lib/Sound";
 import LoadingAudioViz from "@/components/LoadingAudioViz";
 import PickupFlashLayer from "@/components/PickupFlashLayer";
-import { createBulletPool, loadViewWeapon } from "@/lib/ViewWeapon";
+import { warmupPickupPreviewEngine } from "@/lib/PickupPreviewEngine";
+import { createBulletPool, getLaserPalette, loadViewWeapon } from "@/lib/ViewWeapon";
 import {
   spawnAmmoDrop, updateAmmoDrops,
   preloadAmmoCrateAssets,
@@ -60,9 +59,11 @@ import {
   updateTrajectoryPreview, hideTrajectoryPreview, disposePreview,
   applyScreenShake, triggerScreenShake,
   getGrenadeParams, setGrenadeParams,
+  getGrenadeExplosionVfx, setGrenadeExplosionVfx, resetGrenadeExplosionVfx,
   spawnGrenadeDrop, updateGrenadeDrops, disposeAllGrenadeDrops,
   preloadGrenadeAssets,
 } from "@/lib/Grenade";
+import { warmupGameGpu } from "@/lib/GpuWarmup";
 import {
   applyTargetHit,
   applyTargetPose,
@@ -72,6 +73,7 @@ import {
   disposeAllTargetHealthBars,
   disposeAllHpOrbs,
   pickRandomSpawnPosition,
+  resolveAuthoredSpawnPosition,
   renderTargetHealthBarsPass,
   setHealthBarOccluders,
   setHitDebug,
@@ -82,9 +84,23 @@ import {
   updateHitDebugMarkers,
   updateHpOrbs,
   preloadHpOrbAssets,
+  updateLiveTargetsFloorHoles,
   updateTargetsRepair,
   updateTargetHealthBars,
 } from "@/lib/Targets";
+import {
+  disposeAllBloodSplatters,
+  spawnBloodSplatter,
+  spawnBloodMarkOnTarget,
+  updateBloodSplatters,
+} from "@/lib/BloodParticles";
+import {
+  applyBulletSurfaceHit,
+  collectLevelHitMeshes,
+  disposeAllBulletHoles,
+  preloadBulletHoleTextures,
+  updateBulletHoles,
+} from "@/lib/BulletHoles";
 import {
   DEFAULT_ADS_POSE,
   DEFAULT_BODY_LOOK_DOWN_AMOUNT,
@@ -101,6 +117,7 @@ import SunTunePanel from "@/components/SunTunePanel";
 import StairTunePanel from "@/components/StairTunePanel";
 import HemisphereTunePanel from "@/components/HemisphereTunePanel";
 import WalkBobTunePanel from "@/components/WalkBobTunePanel";
+import HudBarTunePanel from "@/components/HudBarTunePanel";
 import TargetPoseTunePanel from "@/components/TargetPoseTunePanel";
 import LevelObjectTunePanel from "@/components/LevelObjectTunePanel";
 import { SettingsSection } from "@/components/SettingsSection";
@@ -144,6 +161,14 @@ import {
   saveWalkBobTuneEnabled,
   saveWalkBobTuning,
 } from "@/lib/WalkBobTuning";
+import {
+  DEFAULT_HUD_BAR_TUNING,
+  loadHudBarTuneEnabled,
+  loadHudBarTuning,
+  normalizeHudBarTuning,
+  saveHudBarTuneEnabled,
+  saveHudBarTuning,
+} from "@/lib/HudBarTuning";
 import ControlsPanel from "@/components/ControlsPanel";
 import {
   isBindingDown,
@@ -207,13 +232,13 @@ const SUN_TUNE_ENABLED_KEY = "fps-sun-tune-enabled";
 const HEMI_TUNE_ENABLED_KEY = "fps-hemi-tune-enabled";
 const STAIRS_TUNE_ENABLED_KEY = "fps-stairs-tune-enabled";
 const GRENADE_TUNE_ENABLED_KEY = "fps-grenade-tune-enabled";
+const GRENADE_EXPLOSION_TUNE_ENABLED_KEY = "fps-grenade-explosion-tune-enabled";
 const LEGACY_LOOK_SPEED_KEY = "fps-look-speed";
 const LEGACY_LOOK_EASE_KEY = "fps-look-ease";
 const RENDER_SCALE_KEY = "fps-render-scale";
 const PLAYER_HEIGHT_KEY = "fps-player-height";
 const SHOW_FPS_KEY = "fps-show-counter";
 const MUSIC_ENABLED_KEY = "fps-music-enabled";
-const WEAPON_RECOIL_KEY = "fps-weapon-recoil-enabled";
 const DEFAULT_LOOK = 7;
 const DEFAULT_MOUSE_EASE = 0;
 const DEFAULT_MAX_LOOK_RATE = 2.5;
@@ -359,7 +384,7 @@ function updateWalkPowerHud(el, stamina, staminaMax, playerHealth, visible) {
     greenOp = Math.min(1, (displayVal - 100) / (displayMax - 100));
   }
 
-  const track = el.querySelector(".hudWalkPowerTrack");
+  const track = el.querySelector(".hudStaminaTrack");
   if (track) {
     track.classList.toggle("hudWalkPowerRadioactive", greenOp > 0.01);
     track.classList.toggle("hudWalkPowerOverload", overload && greenOp > 0.01);
@@ -537,6 +562,8 @@ export default function FpsGame() {
   });
   const [stairsTuneEnabled, setStairsTuneEnabled] = useState(false);
   const [walkBobTuneEnabled, setWalkBobTuneEnabled] = useState(false);
+  const [hudBarTuneEnabled, setHudBarTuneEnabled] = useState(false);
+  const [hudBarLayout, setHudBarLayout] = useState(() => loadHudBarTuning());
   const [walkBobTuning, setWalkBobTuning] = useState(initialWalkBobTuning);
   const [sunTuneEnabled, setSunTuneEnabled] = useState(false);
   const [hemiTuneEnabled, setHemiTuneEnabled] = useState(false);
@@ -553,15 +580,9 @@ export default function FpsGame() {
   const [showFps, setShowFps] = useState(false);
   const [musicEnabled, setMusicEnabled] = useState(true);
   const musicEnabledRef = useRef(true);
-  const [loadingMusicTrackId, setLoadingMusicTrackId] = useState(
-    () => loadStoredLoadingTrackId()
-  );
   const loadingMusicTrackIdRef = useRef(loadStoredLoadingTrackId());
   const levelMusicTrackIdRef = useRef(DEFAULT_LEVEL_TRACK_ID);
   const [showDevOverlay, setShowDevOverlay] = useState(() => window.localStorage.getItem("fps-show-dev-overlay") === "true");
-  const [weaponRecoilEnabled, setWeaponRecoilEnabled] = useState(
-    () => window.localStorage.getItem(WEAPON_RECOIL_KEY) !== "false"
-  );
   const [hudTuneEnabled, setHudTuneEnabled] = useState(false);
   const [hudCogX, setHudCogX] = useState(4);
   const [hudCogY, setHudCogY] = useState(32);
@@ -578,19 +599,12 @@ export default function FpsGame() {
   const [hudCompassX, setHudCompassX] = useState(92);
   const [hudCompassY, setHudCompassY] = useState(21);
   const [hudCompassSize, setHudCompassSize] = useState(6.3);
-  const [hbLivesX, setHbLivesX] = useState(4.5);
-  const [hbLivesY, setHbLivesY] = useState(11.5);
-  const [hbLivesSize, setHbLivesSize] = useState(1.05);
-  const [hbBarX, setHbBarX] = useState(18.5);
-  const [hbBarY, setHbBarY] = useState(34);
-  const [hbBarW, setHbBarW] = useState(76);
-  const [hbBarH, setHbBarH] = useState(33.5);
   const [hbCorner, setHbCorner] = useState(3);
   const [radarInnerX] = useState(52);
   const [radarInnerY] = useState(50);
   const [radarInnerSize] = useState(80);
-  const [radarX] = useState(1);
-  const [radarY] = useState(1);
+  const [radarLeft] = useState(1.5);
+  const [radarBottom] = useState(1.5);
   const [radarScale] = useState(11);
   const [weaponTuneEnabled, setWeaponTuneEnabled] = useState(false);
   const [targetTuneEnabled, setTargetTuneEnabled] = useState(false);
@@ -601,7 +615,6 @@ export default function FpsGame() {
   const targetsRef = useRef([]);
   const [hitDebugEnabled, setHitDebugEnabled] = useState(false);
   const hitDebugEnabledRef = useRef(false);
-  const weaponRecoilEnabledRef = useRef(true);
   const [hitzoneOverlayEnabled, setHitzoneOverlayEnabled] = useState(false);
   const [levelEditEnabled, setLevelEditEnabled] = useState(false);
   const levelEditEnabledRef = useRef(false);
@@ -678,6 +691,15 @@ export default function FpsGame() {
       window.localStorage.getItem(GRENADE_TUNE_ENABLED_KEY) === "true"
   );
   const [grenadeParams, setGrenadeParamsState] = useState(() => getGrenadeParams());
+  const [grenadeExplosionTuneEnabled, setGrenadeExplosionTuneEnabled] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.localStorage.getItem(GRENADE_EXPLOSION_TUNE_ENABLED_KEY) === "true"
+  );
+  const [explosionVfx, setExplosionVfxState] = useState(() => getGrenadeExplosionVfx());
+  const patchExplosionVfx = (patch) => {
+    setExplosionVfxState(setGrenadeExplosionVfx(patch));
+  };
   const [grenadeWidgetTuneEnabled, setGrenadeWidgetTuneEnabled] = useState(
     () => window.localStorage.getItem("fps-grenade-widget-tune") === "true"
   );
@@ -754,7 +776,6 @@ export default function FpsGame() {
   fireModeRef.current = fireMode;
   loadDoneRef.current = loadDone;
   musicEnabledRef.current = musicEnabled;
-  loadingMusicTrackIdRef.current = loadingMusicTrackId;
 
   scheduleGameplayHudSyncRef.current = () => {
     if (hudSyncPendingRef.current) return;
@@ -831,6 +852,7 @@ export default function FpsGame() {
     const hemiEnabled = localStorage.getItem(HEMI_TUNE_ENABLED_KEY) === "true";
     const stairsEnabled = localStorage.getItem(STAIRS_TUNE_ENABLED_KEY) === "true";
     const walkBobEnabled = loadWalkBobTuneEnabled();
+    const hudBarEnabled = loadHudBarTuneEnabled();
     setInvertYLook(storedInvert);
     const storedScale = loadRenderScale();
     setRenderScale(storedScale);
@@ -840,13 +862,14 @@ export default function FpsGame() {
     const storedLoadingTrack = loadStoredLoadingTrackId();
     setMusicEnabled(storedMusicEnabled);
     musicEnabledRef.current = storedMusicEnabled;
-    setLoadingMusicTrackId(storedLoadingTrack);
     loadingMusicTrackIdRef.current = storedLoadingTrack;
     setWeaponTuneEnabled(tuneEnabled);
     setSunTuneEnabled(sunEnabled);
     setHemiTuneEnabled(hemiEnabled);
     setStairsTuneEnabled(stairsEnabled);
     setWalkBobTuneEnabled(walkBobEnabled);
+    setHudBarTuneEnabled(hudBarEnabled);
+    setHudBarLayout(loadHudBarTuning());
     setKeyboardLook(kbLook);
     setKeyboardEase(kbEase);
     setMouseLook(mLook);
@@ -885,7 +908,6 @@ export default function FpsGame() {
   settingsOpenRef.current = settingsOpen;
   controlsOpenRef.current = controlsOpen;
   weaponTuneEnabledRef.current = weaponTuneEnabled;
-  weaponRecoilEnabledRef.current = weaponRecoilEnabled;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -905,9 +927,14 @@ export default function FpsGame() {
     let flashTimeout = null;
     let bulletPool = null;
     let bullets = [];
+    let hpOrbs = [];
+    let ammoDrops = [];
+    let grenades = [];
+    let grenadeDrops = [];
+    let bloodSplatters = [];
     let gameReady = false;
     let healthRegenTimer = 0;
-    const HEALTH_REGEN_INTERVAL = 15;
+    const HEALTH_REGEN_INTERVAL = 10;
     const HEALTH_REGEN_AMOUNT = 1;
     let onCanvasClick = null;
     let onPointerLockChange = null;
@@ -959,7 +986,7 @@ export default function FpsGame() {
       };
 
       reportLoad(5, "Renderer & scene");
-      reportLoad(8, "Audio — SFX + music tracks");
+      reportLoad(8, "Audio — SFX, footsteps + body hits + music");
       await sounds.preload();
       if (!isActive()) return;
       reportLoad(12, "Audio ready");
@@ -992,6 +1019,9 @@ export default function FpsGame() {
       await preloadHpOrbAssets();
       if (!isActive()) return;
       reportLoad(58, "Pickup assets");
+      warmupPickupPreviewEngine();
+      if (!isActive()) return;
+      reportLoad(59, "Pickup preview ready");
 
       reportLoad(60, "Building level");
       const sheltered = (arena.ceilingThickness ?? 0) > 0;
@@ -1035,6 +1065,8 @@ export default function FpsGame() {
       reportLoad(72, "Level geometry");
       targetsRef.current = level.targets;
       levelObjectsRef.current = level.pillarMeshes ?? [];
+      preloadBulletHoleTextures();
+      const levelHitMeshes = collectLevelHitMeshes(level.group, level.targets);
       // Per-room culling: hide interior shells and disable their lights
       // when the room isn't visible to the camera (and the player isn't
       // standing in it). Skips the room render pass entirely on frames
@@ -1184,6 +1216,17 @@ export default function FpsGame() {
         getGroundSurfaces: () => level.groundSurfaces,
         getFloorHoles: () => level.floorHoles ?? [],
         getFloorBounds: () => level.floorBounds,
+        arenaBounds: level.arenaBounds,
+        getDoorwayPassages: () => level.doorwayPassages ?? [],
+        getAttachWall: () => level.attachWall ?? "north",
+        getIsInRoom: (x, z) =>
+          isPointInsideAnyRoom(
+            x,
+            z,
+            level.rooms ?? [],
+            arenaHalf,
+            level.attachWall ?? attachWall
+          ),
         getBindings: () => bindingsRef.current,
         getInvertYLook: () => invertYRef.current,
         getKeyboardLookSpeed: () => keyboardLookRef.current,
@@ -1198,6 +1241,18 @@ export default function FpsGame() {
           const hp = playerHealthRef.current;
           return hp > 100 ? hp / 100 : 1;
         },
+        onFootstep: ({ speed, crouching, sprinting, onStairs }) => {
+          if (!loadDoneRef.current) return;
+          const t = resolveWalkBobTuning(walkBobTuningRef.current);
+          const speedNorm = speed / Math.max(t.walkSpeed, 0.1);
+          const playbackRate = THREE.MathUtils.clamp(speedNorm, 0.82, 1.28);
+          let volume = 0.5;
+          if (crouching) volume *= 0.5;
+          else if (sprinting) volume *= 1.1;
+          if (onStairs) volume *= 0.88;
+          volume *= THREE.MathUtils.clamp(speedNorm, 0.55, 1.15);
+          sounds.playFootstep({ volume, playbackRate });
+        },
       });
 
       respawnCallbackRef.current = () => {
@@ -1205,6 +1260,8 @@ export default function FpsGame() {
       };
 
       const shootRaycaster = new THREE.Raycaster();
+      shootRaycaster.layers.enable(WORLD_LAYER);
+      shootRaycaster.layers.enable(ROOM_INTERIOR_LAYER);
       const hitRaycaster = new THREE.Raycaster();
       const screenCenter = new THREE.Vector2(0, 0);
       const currentWeaponLoad = ++weaponLoadId;
@@ -1226,10 +1283,11 @@ export default function FpsGame() {
         });
       bulletPool = createBulletPool();
       bullets = [];
-      const hpOrbs = [];
-      const ammoDrops = [];
-      const grenades = [];
-      const grenadeDrops = [];
+      hpOrbs = [];
+      ammoDrops = [];
+      grenades = [];
+      grenadeDrops = [];
+      bloodSplatters = [];
       let grenadeHeld = false;
       const allColliders = [...level.colliders, ...level.stairColliders];
       let _lastHostileCount = -1;
@@ -1250,6 +1308,26 @@ export default function FpsGame() {
         const delayMs = targetConfig.respawnDelay * 1000;
         setTimeout(() => {
           if (disposed) return;
+          const fixed = mesh.userData.fixedSpawn;
+          if (fixed) {
+            const pos = resolveAuthoredSpawnPosition(fixed.x, fixed.z, {
+              bounds: level.arenaBounds,
+              colliders: allColliders,
+              targets: level.targets,
+              config: targetConfig,
+              skip: mesh,
+            });
+            if (!pos) return;
+            activateTargetAt(
+              mesh,
+              pos.x,
+              pos.z,
+              targetConfig,
+              pos.y ?? fixed.y ?? 0,
+              fixed.yaw
+            );
+            return;
+          }
           const pos = pickRandomSpawnPosition({
             bounds: level.arenaBounds,
             colliders: allColliders,
@@ -1363,7 +1441,24 @@ export default function FpsGame() {
         if (targetTuneEnabledRef.current) {
           selectedTargetRef.current = hit.object;
         }
-        const { killed, zone } = applyTargetHit(hit.object, hit.point, bulletDirection);
+        const { killed, zone, damage } = applyTargetHit(hit.object, hit.point, bulletDirection);
+        if (zone !== "miss") {
+          const splatterDamage = Math.max(damage, 4);
+          const splatter = spawnBloodSplatter(
+            scene,
+            hit.point,
+            bulletDirection,
+            splatterDamage,
+          );
+          if (splatter) bloodSplatters.push(splatter);
+          spawnBloodMarkOnTarget(
+            hit.object,
+            hit.point,
+            hit.face,
+            bulletDirection,
+            splatterDamage,
+          );
+        }
         if (killed) {
           const deathPos = hit.object.position.clone();
           scheduleKillDrops(deathPos, zone);
@@ -1400,16 +1495,21 @@ export default function FpsGame() {
       }
 
       function spawnBullet(origin, direction, visualOrigin) {
-        const bullet = bulletPool.spawn(scene, visualOrigin ?? origin, direction);
+        const radioactive = playerHealthRef.current > 100;
+        const bullet = bulletPool.spawn(scene, visualOrigin ?? origin, direction, {
+          radioactive,
+        });
         bullet.hitOrigin = origin.clone();
         bullet.hitPos = origin.clone();
         bullet.traveled = 0;
+        bullet.radioactive = radioactive;
         bullets.push(bullet);
       }
 
       function flashMuzzle() {
         if (!weapon) return;
-        weapon.muzzleFlash.color.setHex(0x66ccff);
+        const palette = getLaserPalette(playerHealthRef.current > 100);
+        weapon.muzzleFlash.color.setHex(palette.muzzle);
         weapon.muzzleFlash.intensity = 5;
         if (flashTimeout) clearTimeout(flashTimeout);
         flashTimeout = setTimeout(() => {
@@ -1437,6 +1537,7 @@ export default function FpsGame() {
           MAGAZINE_SIZE * 2
         );
         syncAmmoToUi();
+        sounds.playSupplyPickup();
         return true;
       }
 
@@ -1467,12 +1568,10 @@ export default function FpsGame() {
         spawnBullet(hitRaycaster.ray.origin.clone(), camDir, muzzlePos);
         flashMuzzle();
         sounds.play("laser_shot", { volume: 0.65 });
-        if (weaponRecoilEnabledRef.current) {
-          const ads = weapon.getAimBlend?.() ?? 0;
-          const scale = 1 - ads * 0.45;
-          player.addAimRecoil(scale);
-          weapon.applyFireKick(ads);
-        }
+        const ads = weapon.getAimBlend?.() ?? 0;
+        const scale = 1 - ads * 0.45;
+        player.addAimRecoil(scale);
+        weapon.applyFireKick(ads);
         return true;
       }
 
@@ -1524,24 +1623,49 @@ export default function FpsGame() {
         for (let i = bullets.length - 1; i >= 0; i--) {
           const bullet = bullets[i];
           const stepLen = BULLET_SPEED * dt;
-
-          bullet.mesh.position.addScaledVector(bullet.direction, stepLen);
-
           const prevHit = bullet.hitPos;
           _bulletNextHit.copy(prevHit).addScaledVector(bullet.direction, stepLen);
 
           shootRaycaster.set(prevHit, bullet.direction);
           shootRaycaster.far = stepLen + 0.05;
-          const hits = shootRaycaster.intersectObjects(targets, false);
 
-          bullet.hitPos.copy(_bulletNextHit);
-          bullet.traveled += stepLen;
+          const targetHits = shootRaycaster.intersectObjects(targets, true);
+          const surfaceHits = shootRaycaster.intersectObjects(
+            levelHitMeshes,
+            false
+          );
 
-          if (hits[0]) {
-            applyHit(hits[0], bullet.direction);
+          /** @type {THREE.Intersection | null} */
+          let bestHit = null;
+          for (const hit of targetHits) {
+            if (!bestHit || hit.distance < bestHit.distance) bestHit = hit;
+          }
+          for (const hit of surfaceHits) {
+            if (!bestHit || hit.distance < bestHit.distance) bestHit = hit;
+          }
+
+          if (bestHit) {
+            bullet.mesh.position.copy(bestHit.point);
+            let targetNode = bestHit.object;
+            while (targetNode && !targetNode.userData?.isTarget) {
+              targetNode = targetNode.parent;
+            }
+            if (targetNode?.userData?.isTarget && targetNode.userData.health > 0) {
+              applyHit(bestHit, bullet.direction);
+            } else {
+              applyBulletSurfaceHit(
+                bestHit,
+                bullet.direction,
+                bullet.radioactive
+              );
+            }
             removeBullet(i);
             continue;
           }
+
+          bullet.mesh.position.addScaledVector(bullet.direction, stepLen);
+          bullet.hitPos.copy(_bulletNextHit);
+          bullet.traveled += stepLen;
 
           if (bullet.traveled >= BULLET_MAX_RANGE) {
             removeBullet(i);
@@ -1918,10 +2042,11 @@ export default function FpsGame() {
               camera,
               level.floorY,
               allColliders,
-              level.bounds
+              level.bounds,
+              level.floorHoles ?? []
             );
             grenades.push(g);
-            sounds.play("grenade_throw", { volume: 0.85 });
+            sounds.playGrenadeWhoosh({ volume: 0.8 });
           }
         }
 
@@ -1938,6 +2063,8 @@ export default function FpsGame() {
         }
 
         updateBullets(dt);
+        updateBloodSplatters(bloodSplatters, dt, scene);
+        updateBulletHoles(dt);
 
         updateGrenades(
           grenades,
@@ -1953,6 +2080,18 @@ export default function FpsGame() {
             colliders: allColliders,
             floorY: level.floorY,
             bounds: level.bounds,
+            floorHoles: level.floorHoles ?? [],
+            onFloorHit: (pos, impact) => {
+              sounds.playGrenadeFloorHit(scene, pos, { impact });
+            },
+            onExplode: (pos) => {
+              sounds.playGrenadeExplosion(scene, pos);
+            },
+            countdownDuration: sounds.getGrenadeCountdownDuration(),
+            onCountdown: (pos, playbackRate) => {
+              sounds.playGrenadeCountdown(scene, pos, { playbackRate });
+            },
+            viewerPos: camera.position,
           }
         );
         for (const g of grenades) {
@@ -1970,7 +2109,7 @@ export default function FpsGame() {
         }
         applyScreenShake(camera, dt);
 
-        // Health auto-regen: 1 HP every 15 seconds
+        // Health auto-regen: 1 HP every 10 seconds while below 100
         if (playerHealthRef.current > 0 && playerHealthRef.current < 100) {
           healthRegenTimer += dt;
           if (healthRegenTimer >= HEALTH_REGEN_INTERVAL) {
@@ -1984,6 +2123,16 @@ export default function FpsGame() {
         }
 
         updateTargetsRepair(level.targets, dt);
+        updateLiveTargetsFloorHoles(
+          level.targets,
+          dt,
+          level.floorY,
+          level.floorHoles ?? [],
+          (mesh) => {
+            deactivateTarget(mesh);
+            scheduleRespawn(mesh);
+          }
+        );
         updateTargetHealthBars(level.targets, dt, camera);
         updateHitDebugMarkers(dt);
         updateDeathAnimations(level.targets, dt, (mesh) => {
@@ -1993,7 +2142,10 @@ export default function FpsGame() {
           colliders: allColliders,
           floorY: level.floorY,
           bounds: level.bounds,
-          floorHoles: level.floorHoles,
+          floorHoles: level.floorHoles ?? [],
+          onBodyFloorHit: (pos, impact) => {
+            sounds.playBodyFloorHit(scene, pos, { impact });
+          },
         });
 
 
@@ -2007,6 +2159,7 @@ export default function FpsGame() {
           },
           allColliders,
           level.bounds,
+          level.floorHoles ?? [],
         );
 
         updateAmmoDrops(
@@ -2019,6 +2172,7 @@ export default function FpsGame() {
           },
           allColliders,
           level.bounds,
+          level.floorHoles ?? [],
         );
 
         updateGrenadeDrops(
@@ -2032,7 +2186,8 @@ export default function FpsGame() {
             scheduleGameplayHudSyncRef.current();
           },
           allColliders,
-          level.bounds
+          level.bounds,
+          level.floorHoles ?? []
         );
 
         if (!frozen) {
@@ -2191,6 +2346,22 @@ export default function FpsGame() {
       if (!isActive()) return;
       reportLoad(96, "View weapon");
 
+      reportLoad(97, "GPU warmup");
+      await warmupGameGpu({
+        renderer,
+        scene,
+        camera,
+        level,
+        weapon,
+        sky,
+        bulletPool,
+        floorY: level.floorY,
+        colliders: allColliders,
+        bounds: level.bounds,
+      });
+      if (!isActive()) return;
+      reportLoad(98, "GPU ready");
+
       gameReady = true;
       reportLoad(100, "Ready");
       setAssetsReady(true);
@@ -2227,6 +2398,8 @@ export default function FpsGame() {
       ammoDrops.length = 0;
       disposeAllGrenades(grenades, scene);
       disposeAllGrenadeDrops(grenadeDrops);
+      disposeAllBloodSplatters(bloodSplatters, scene);
+      disposeAllBulletHoles();
       disposePreview();
       setHealthBarOccluders(null);
       levelTextures?.dispose();
@@ -2243,7 +2416,7 @@ export default function FpsGame() {
       }
       weapon?.dispose();
       weaponRef.current = null;
-      sounds.dispose();
+      soundsRef.current?.dispose();
       soundsRef.current = null;
       respawnCallbackRef.current = null;
       hemiRef.current = null;
@@ -2296,16 +2469,21 @@ export default function FpsGame() {
     }));
   };
 
-  const handleMusicTrackSelect = (trackId) => {
-    setLoadingMusicTrackId(trackId);
-    loadingMusicTrackIdRef.current = trackId;
-    localStorage.setItem(MUSIC_TRACK_KEY, trackId);
+  const handleMusicEnabledChange = (checked) => {
+    setMusicEnabled(checked);
+    musicEnabledRef.current = checked;
+    localStorage.setItem(MUSIC_ENABLED_KEY, String(checked));
     const s = soundsRef.current;
     if (!s) return;
-    s.setLoadingTrack(trackId);
-    if (musicEnabledRef.current) {
+    if (!checked) {
+      s.stopLoadingMusic();
+      s.stopLevelMusic();
+    } else if (loadDoneRef.current) {
       s.resume();
-      s.startLoadingMusic({ trackId });
+      s.startLevelMusic({ trackId: levelMusicTrackIdRef.current });
+    } else {
+      s.resume();
+      s.startLoadingMusic({ trackId: loadingMusicTrackIdRef.current });
     }
   };
 
@@ -2335,14 +2513,12 @@ export default function FpsGame() {
           <img src="/ui/logo.png" alt="VX-27" className="loadingLogo" />
           {!loadDone && (
             <LoadingAudioViz
-              tracks={MUSIC_TRACKS}
-              selectedTrackId={loadingMusicTrackId}
-              onTrackSelect={handleMusicTrackSelect}
+              musicEnabled={musicEnabled}
+              onMusicEnabledChange={handleMusicEnabledChange}
               getAnalyser={() => soundsRef.current?.getLoadingAnalyser()}
               getBeatAnalyser={() => soundsRef.current?.getLoadingBeatAnalyser()}
               isMusicPreloaded={() => soundsRef.current?.isMusicPreloaded()}
               isLoadingMusicPlaying={() => soundsRef.current?.isLoadingMusicPlaying()}
-              musicEnabled={musicEnabled}
               active={!loadDone}
             />
           )}
@@ -2467,10 +2643,10 @@ export default function FpsGame() {
         </div>
       </div>
 
-      {/* Radar — top left */}
+      {/* Radar — bottom left */}
       <div className="hudRadar" ref={radarRef} style={{
-        left: `${radarX}rem`,
-        top: `${radarY}rem`,
+        left: `${radarLeft}rem`,
+        bottom: `${radarBottom}rem`,
         width: `${radarScale}rem`,
         height: `${radarScale}rem`,
       }}>
@@ -2485,6 +2661,60 @@ export default function FpsGame() {
             <div ref={radarDotsRef} className="radarDots" />
             <div className="radarCenter" />
           </div>
+        </div>
+      </div>
+
+      {/* Stamina bar — top left */}
+      <div
+        ref={walkPowerRef}
+        className="hudStaminaBar"
+        role="status"
+        aria-label="Sprint stamina"
+        style={{
+          "--sb-icon-x": `${hudBarLayout.hbLivesX}%`,
+          "--sb-icon-y": `${hudBarLayout.hbLivesY}%`,
+          "--sb-bar-x": `${hudBarLayout.sbBarX}%`,
+          "--sb-bar-y": `${hudBarLayout.sbBarY}%`,
+          "--sb-bar-w": `${hudBarLayout.sbBarW}%`,
+          "--sb-bar-h": `${hudBarLayout.sbBarH}%`,
+          "--hb-corner": `${hbCorner}px`,
+        }}
+      >
+        <div className="hudStaminaIcon" aria-hidden="true">
+          <img src="/ui/stamina-icon.png" className="hudStaminaFist" alt="" />
+        </div>
+        <div className="hudStaminaTrack">
+          <div
+            className="hudWalkPowerFill"
+            style={{
+              width: "100%",
+              "--power-pct": 1,
+              "--orange-op": 0,
+              "--red-op": 0,
+              "--hb-corner": `${hbCorner}px`,
+            }}
+          >
+            <div className="hudHealthLayer hudHealthBlue" />
+            <div
+              className="hudHealthLayer hudHealthOrange"
+              style={{ opacity: "var(--orange-op)" }}
+            />
+            <div
+              className="hudHealthLayer hudHealthRed"
+              style={{ opacity: "var(--red-op)" }}
+            />
+            <div
+              className="hudHealthLayer hudHealthFillRadioactive hudWalkPowerRadioactiveLayer"
+              style={{ opacity: 0 }}
+            />
+          </div>
+          <span className="hudHealthText hudHealthTextWhite hudStaminaTextWhite">100%</span>
+          <span
+            className="hudHealthText hudHealthTextBlack hudStaminaTextBlack"
+            style={{ width: "100%" }}
+          >
+            100%
+          </span>
         </div>
       </div>
 
@@ -2521,13 +2751,13 @@ export default function FpsGame() {
         role="status"
         aria-label="Player health"
         style={{
-          "--hb-lives-x": `${hbLivesX}%`,
-          "--hb-lives-y": `${hbLivesY}%`,
-          "--hb-lives-size": `${hbLivesSize}vw`,
-          "--hb-bar-x": `${hbBarX}%`,
-          "--hb-bar-y": `${hbBarY}%`,
-          "--hb-bar-w": `${hbBarW}%`,
-          "--hb-bar-h": `${hbBarH}%`,
+          "--hb-lives-x": `${hudBarLayout.hbLivesX}%`,
+          "--hb-lives-y": `${hudBarLayout.hbLivesY}%`,
+          "--hb-lives-size": `${hudBarLayout.hbLivesSize}vw`,
+          "--hb-bar-x": `${hudBarLayout.hbBarX}%`,
+          "--hb-bar-y": `${hudBarLayout.hbBarY}%`,
+          "--hb-bar-w": `${hudBarLayout.hbBarW}%`,
+          "--hb-bar-h": `${hudBarLayout.hbBarH}%`,
           "--hb-corner": `${hbCorner}px`,
         }}
       >
@@ -2589,49 +2819,6 @@ export default function FpsGame() {
       {/* Red vignette when low health — opacity set in game loop */}
       <div ref={damageVignetteRef} className="hudDamageVignette" aria-hidden="true" />
 
-      {/* Sprint stamina — bottom left */}
-      <div
-        ref={walkPowerRef}
-        className="hudWalkPower"
-        role="status"
-        aria-label="Sprint stamina"
-      >
-        <span className="hudWalkPowerLabel">STAMINA</span>
-        <div className="hudWalkPowerTrack">
-          <div
-            className="hudWalkPowerFill"
-            style={{
-              width: "100%",
-              "--power-pct": 1,
-              "--orange-op": 0,
-              "--red-op": 0,
-              "--hb-corner": `${hbCorner}px`,
-            }}
-          >
-            <div className="hudHealthLayer hudHealthBlue" />
-            <div
-              className="hudHealthLayer hudHealthOrange"
-              style={{ opacity: "var(--orange-op)" }}
-            />
-            <div
-              className="hudHealthLayer hudHealthRed"
-              style={{ opacity: "var(--red-op)" }}
-            />
-            <div
-              className="hudHealthLayer hudHealthFillRadioactive hudWalkPowerRadioactiveLayer"
-              style={{ opacity: 0 }}
-            />
-          </div>
-          <span className="hudHealthText hudHealthTextWhite hudStaminaTextWhite">100%</span>
-          <span
-            className="hudHealthText hudHealthTextBlack hudStaminaTextBlack"
-            style={{ width: "100%" }}
-          >
-            100%
-          </span>
-        </div>
-      </div>
-
       {settingsOpen && (
         <div
           className="settingsBackdrop"
@@ -2670,6 +2857,21 @@ export default function FpsGame() {
               >
                 Open key bindings…
               </button>
+            </SettingsSection>
+
+            <SettingsSection title="Audio" defaultOpen>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={musicEnabled}
+                  onChange={(e) => handleMusicEnabledChange(e.target.checked)}
+                />
+                Music
+              </label>
+              <p className="settingsHint" style={{ marginTop: 0 }}>
+                Background music on the loading screen and in-game. Same
+                setting as the loading-screen toggle.
+              </p>
             </SettingsSection>
 
             <SettingsSection title="Time of Day">
@@ -2714,29 +2916,6 @@ export default function FpsGame() {
                   }}
                 />
                 Invert look (mouse & arrows)
-              </label>
-              <label className="settingRow">
-                <input
-                  type="checkbox"
-                  checked={musicEnabled}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setMusicEnabled(checked);
-                    musicEnabledRef.current = checked;
-                    localStorage.setItem(MUSIC_ENABLED_KEY, String(checked));
-                    const s = soundsRef.current;
-                    if (!s) return;
-                    if (!checked) {
-                      s.stopLoadingMusic();
-                      s.stopLevelMusic();
-                    } else if (loadDoneRef.current) {
-                      s.startLevelMusic({ trackId: levelMusicTrackIdRef.current });
-                    } else {
-                      s.startLoadingMusic({ trackId: loadingMusicTrackIdRef.current });
-                    }
-                  }}
-                />
-                Background music
               </label>
               <label className="sliderRow">
                 <span className="sliderLabel">
@@ -2933,6 +3112,18 @@ export default function FpsGame() {
               <label className="settingRow">
                 <input
                   type="checkbox"
+                  checked={hudBarTuneEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setHudBarTuneEnabled(checked);
+                    saveHudBarTuneEnabled(checked);
+                  }}
+                />
+                HUD bar layout tuning
+              </label>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
                   checked={stairsTuneEnabled}
                   disabled={!arenaHasStairs}
                   onChange={(e) => {
@@ -2983,6 +3174,22 @@ export default function FpsGame() {
                 />
                 Grenade physics (throw / blast)
               </label>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={grenadeExplosionTuneEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setGrenadeExplosionTuneEnabled(checked);
+                    localStorage.setItem(GRENADE_EXPLOSION_TUNE_ENABLED_KEY, String(checked));
+                  }}
+                />
+                Grenade explosion VFX
+              </label>
+              <p className="settingsHint">
+                Toggle layers and tune shockwave / particle look. Throw grenades while
+                adjusting — changes apply to the next detonation.
+              </p>
               <p className="settingsGroupLabel">Debug tools</p>
               <label className="settingRow">
                 <input
@@ -3058,28 +3265,15 @@ export default function FpsGame() {
               <label className="settingRow">
                 <input
                   type="checkbox"
-                  checked={weaponRecoilEnabled}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setWeaponRecoilEnabled(checked);
-                    weaponRecoilEnabledRef.current = checked;
-                    localStorage.setItem(WEAPON_RECOIL_KEY, String(checked));
-                  }}
-                />
-                Weapon recoil
-              </label>
-              <p className="settingsHint">
-                Kicks the gun backward and nudges aim upward each shot so you
-                have to re-center. Turn off to compare feel while tuning.
-              </p>
-              <label className="settingRow">
-                <input
-                  type="checkbox"
                   checked={showDevOverlay}
                   onChange={(e) => {
                     const checked = e.target.checked;
                     setShowDevOverlay(checked);
                     localStorage.setItem("fps-show-dev-overlay", String(checked));
+                    if (checked) {
+                      setHudBarTuneEnabled(true);
+                      saveHudBarTuneEnabled(true);
+                    }
                   }}
                 />
                 Show dev overlay (HP buttons)
@@ -3279,6 +3473,27 @@ export default function FpsGame() {
             onClose={() => {
               setWalkBobTuneEnabled(false);
               saveWalkBobTuneEnabled(false);
+            }}
+          />
+        )}
+        {hudBarTuneEnabled && (
+          <HudBarTunePanel
+            tuning={hudBarLayout}
+            onChange={(key, value) => {
+              setHudBarLayout((prev) => {
+                const next = normalizeHudBarTuning({ ...prev, [key]: value });
+                saveHudBarTuning(next);
+                return next;
+              });
+            }}
+            onReset={() => {
+              const next = { ...DEFAULT_HUD_BAR_TUNING };
+              saveHudBarTuning(next);
+              setHudBarLayout(next);
+            }}
+            onClose={() => {
+              setHudBarTuneEnabled(false);
+              saveHudBarTuneEnabled(false);
             }}
           />
         )}
@@ -3666,6 +3881,13 @@ export default function FpsGame() {
                 <span className="hudTuneVal">{grenadeParams.bounceFriction.toFixed(2)}</span>
               </label>
               <label className="hudTuneRow">
+                <span>Roll stop</span>
+                <input type="range" min={4} max={40} step={1}
+                  value={grenadeParams.groundRollFriction ?? 16}
+                  onChange={(e) => { const p = { ...grenadeParams, groundRollFriction: +e.target.value }; setGrenadeParams(p); setGrenadeParamsState(p); }} />
+                <span className="hudTuneVal">{(grenadeParams.groundRollFriction ?? 16).toFixed(0)}</span>
+              </label>
+              <label className="hudTuneRow">
                 <span>Fuse</span>
                 <input type="range" min={0.5} max={6} step={0.1}
                   value={grenadeParams.fuseTime}
@@ -3701,6 +3923,305 @@ export default function FpsGame() {
         </div>
         )}
       </div>
+      {grenadeExplosionTuneEnabled && (
+        <div
+          className="hudTunePanel hudTunePanel--bottomDock"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="hudTuneHeader">
+            <span>Grenade Explosion VFX</span>
+            <button
+              type="button"
+              className="hudTuneClose"
+              onClick={() => {
+                setGrenadeExplosionTuneEnabled(false);
+                localStorage.setItem(GRENADE_EXPLOSION_TUNE_ENABLED_KEY, "false");
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <div className="hudTuneBody hudTuneBody--row">
+            <div className="hudTuneGroup hudTuneGroup--layers">
+              <span className="hudTuneGroupLabel">Layers</span>
+              <div className="hudTuneLayerGrid">
+              {[
+                ["flash", "Flash light"],
+                ["shockRings", "Shockwave rings"],
+                ["shockDome", "Shockwave dome"],
+                ["sparks", "Sparks"],
+                ["embers", "Embers"],
+                ["debris", "Debris"],
+                ["light", "Explosion light"],
+              ].map(([key, label]) => (
+                <label key={key} className="settingRow hudTuneLayerRow">
+                  <input
+                    type="checkbox"
+                    checked={!!explosionVfx[key]}
+                    onChange={(e) => patchExplosionVfx({ [key]: e.target.checked })}
+                  />
+                  {label}
+                </label>
+              ))}
+              </div>
+              <button
+                type="button"
+                className="hudTuneReset"
+                onClick={() => setExplosionVfxState(resetGrenadeExplosionVfx())}
+              >
+                Reset VFX defaults
+              </button>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Timing</span>
+              <label className="hudTuneRow">
+                <span>Duration</span>
+                <input
+                  type="range"
+                  min={0.3}
+                  max={3}
+                  step={0.05}
+                  value={explosionVfx.duration}
+                  onChange={(e) => patchExplosionVfx({ duration: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.duration.toFixed(2)}s</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Flash time</span>
+                <input
+                  type="range"
+                  min={0.03}
+                  max={0.3}
+                  step={0.01}
+                  value={explosionVfx.flashDuration}
+                  onChange={(e) => patchExplosionVfx({ flashDuration: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.flashDuration.toFixed(2)}s</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Flash intensity</span>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={1.2}
+                  step={0.05}
+                  value={explosionVfx.flashScaleMul}
+                  onChange={(e) => patchExplosionVfx({ flashScaleMul: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.flashScaleMul.toFixed(2)}</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Shockwave</span>
+              <label className="hudTuneRow">
+                <span>Ring opacity</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={explosionVfx.ringOpacity}
+                  onChange={(e) => patchExplosionVfx({ ringOpacity: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.ringOpacity.toFixed(2)}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Ring scale</span>
+                <input
+                  type="range"
+                  min={0.3}
+                  max={2}
+                  step={0.05}
+                  value={explosionVfx.ringScaleMul}
+                  onChange={(e) => patchExplosionVfx({ ringScaleMul: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.ringScaleMul.toFixed(2)}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Ring duration</span>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={1.2}
+                  step={0.02}
+                  value={explosionVfx.ringDuration}
+                  onChange={(e) => patchExplosionVfx({ ringDuration: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.ringDuration.toFixed(2)}s</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Dome scale</span>
+                <input
+                  type="range"
+                  min={0.2}
+                  max={1.5}
+                  step={0.05}
+                  value={explosionVfx.domeScaleMul}
+                  onChange={(e) => patchExplosionVfx({ domeScaleMul: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.domeScaleMul.toFixed(2)}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Dome opacity</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={explosionVfx.domeOpacity}
+                  onChange={(e) => patchExplosionVfx({ domeOpacity: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.domeOpacity.toFixed(2)}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Dome duration</span>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={1.2}
+                  step={0.02}
+                  value={explosionVfx.domeDuration}
+                  onChange={(e) => patchExplosionVfx({ domeDuration: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.domeDuration.toFixed(2)}s</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Particles</span>
+              <label className="hudTuneRow">
+                <span>Travel spread</span>
+                <input
+                  type="range"
+                  min={0.15}
+                  max={1}
+                  step={0.05}
+                  value={explosionVfx.particleSpread ?? 0.5}
+                  onChange={(e) => patchExplosionVfx({ particleSpread: +e.target.value })}
+                />
+                <span className="hudTuneVal">
+                  {(explosionVfx.particleSpread ?? 0.5).toFixed(2)}
+                </span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Sparks</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={600}
+                  step={10}
+                  value={explosionVfx.sparkCount}
+                  onChange={(e) => patchExplosionVfx({ sparkCount: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.sparkCount}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Spark particle size</span>
+                <input
+                  type="range"
+                  min={0.02}
+                  max={0.25}
+                  step={0.005}
+                  value={explosionVfx.sparkSize}
+                  onChange={(e) => patchExplosionVfx({ sparkSize: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.sparkSize.toFixed(3)}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Embers</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={400}
+                  step={10}
+                  value={explosionVfx.emberCount}
+                  onChange={(e) => patchExplosionVfx({ emberCount: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.emberCount}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Ember particle size</span>
+                <input
+                  type="range"
+                  min={0.02}
+                  max={0.2}
+                  step={0.005}
+                  value={explosionVfx.emberSize}
+                  onChange={(e) => patchExplosionVfx({ emberSize: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.emberSize.toFixed(3)}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Debris</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={250}
+                  step={10}
+                  value={explosionVfx.debrisCount}
+                  onChange={(e) => patchExplosionVfx({ debrisCount: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.debrisCount}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Debris particle size</span>
+                <input
+                  type="range"
+                  min={0.02}
+                  max={0.15}
+                  step={0.005}
+                  value={explosionVfx.debrisSize}
+                  onChange={(e) => patchExplosionVfx({ debrisSize: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.debrisSize.toFixed(3)}</span>
+              </label>
+            </div>
+            <div className="hudTuneGroup">
+              <span className="hudTuneGroupLabel">Light</span>
+              <label className="hudTuneRow">
+                <span>Peak intensity</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={80}
+                  step={1}
+                  value={explosionVfx.lightIntensity}
+                  onChange={(e) => patchExplosionVfx({ lightIntensity: +e.target.value })}
+                />
+                <span className="hudTuneVal">{explosionVfx.lightIntensity}</span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Glow duration</span>
+                <input
+                  type="range"
+                  min={0.05}
+                  max={1.2}
+                  step={0.02}
+                  value={explosionVfx.lightDuration ?? 0.32}
+                  onChange={(e) => patchExplosionVfx({ lightDuration: +e.target.value })}
+                />
+                <span className="hudTuneVal">
+                  {(explosionVfx.lightDuration ?? 0.32).toFixed(2)}s
+                </span>
+              </label>
+              <label className="hudTuneRow">
+                <span>Blue tint</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={explosionVfx.lightBlueMix ?? 0.85}
+                  onChange={(e) => patchExplosionVfx({ lightBlueMix: +e.target.value })}
+                />
+                <span className="hudTuneVal">
+                  {(explosionVfx.lightBlueMix ?? 0.85).toFixed(2)}
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
       {showFps && (
         <div className="topRightHud">
           <div ref={fpsRef} className="fpsCounter" aria-live="polite">

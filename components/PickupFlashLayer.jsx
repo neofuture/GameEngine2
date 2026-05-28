@@ -4,6 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import pickupPreviewEngine from "@/lib/PickupPreviewEngine";
 
 const PICKUP_DISPLAY_MS = 2000;
+const PICKUP_FADE_MS = 550;
 
 function getPickupLabel(type) {
   if (type === "ammo") return "10 Ammo Rounds";
@@ -25,7 +26,7 @@ function PickupOverlay({ type, flashId, onRemove }) {
     const removeTimer = setTimeout(() => {
       setGone(true);
       onRemoveRef.current(flashId);
-    }, PICKUP_DISPLAY_MS + 500);
+    }, PICKUP_DISPLAY_MS + PICKUP_FADE_MS);
     return () => {
       cancelAnimationFrame(frameId);
       clearTimeout(hideTimer);
@@ -78,7 +79,12 @@ const PickupFlashLayer = forwardRef(function PickupFlashLayer(_props, ref) {
   if (flashes.length === 0) return null;
 
   return (
-    <div className="pickupOverlayRow" aria-hidden="true">
+    <div
+      className={`pickupOverlayRow${
+        flashes.length === 1 ? " pickupOverlayRow--single" : " pickupOverlayRow--multi"
+      }`}
+      aria-hidden="true"
+    >
       {flashes.map((flash) => (
         <PickupOverlay
           key={flash.id}
