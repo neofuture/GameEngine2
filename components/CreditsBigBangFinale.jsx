@@ -5,7 +5,7 @@ import { mountCreditsFinalePreview } from "@/lib/CreditsFinalePreview";
 
 const BURST_COUNT = 24;
 
-export default function CreditsBigBangFinale() {
+export default function CreditsBigBangFinale({ titleRef }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -47,7 +47,9 @@ export default function CreditsBigBangFinale() {
         <canvas ref={canvasRef} className="creditsFinaleCanvas" />
         <div className="creditsBigBangText">
           <p className="creditsBigBangPre">VX-27</p>
-          <h2 className="creditsBigBangTitle">THE END</h2>
+          <h2 ref={titleRef} className="creditsBigBangTitle">
+            THE END
+          </h2>
           <p className="creditsBigBangName">Carl Fearby</p>
           <p className="creditsBigBangTag">Thanks for playing · Now go touch grass</p>
         </div>

@@ -26,14 +26,17 @@ export default function LoadingAudioViz({
   getBeatAnalyser,
   isMusicPreloaded,
   isLoadingMusicPlaying,
-  musicEnabled,
+  musicEnabled = true,
   onMusicEnabledChange,
-  active,
+  active = true,
+  showToggle = true,
+  resetKey = "loading",
 }) {
   const [vizLive, setVizLive] = useState(false);
+  const vizEnabled = showToggle ? musicEnabled : true;
 
   useEffect(() => {
-    if (!active || !musicEnabled) {
+    if (!active || !vizEnabled) {
       setVizLive(false);
       return;
     }
@@ -52,7 +55,7 @@ export default function LoadingAudioViz({
     return () => cancelAnimationFrame(rafId);
   }, [
     active,
-    musicEnabled,
+    vizEnabled,
     getAnalyser,
     isMusicPreloaded,
     isLoadingMusicPlaying,
@@ -60,31 +63,33 @@ export default function LoadingAudioViz({
 
   return (
     <div className="loadingAudioBar">
-      <div className="loadingAudioVizHeader">
-        <label className="loadingMusicToggle">
-          <input
-            type="checkbox"
-            checked={musicEnabled}
-            onChange={(e) => {
-              e.stopPropagation();
-              onMusicEnabledChange?.(e.target.checked);
-            }}
-          />
-          Music
-        </label>
-      </div>
+      {showToggle ? (
+        <div className="loadingAudioVizHeader">
+          <label className="loadingMusicToggle">
+            <input
+              type="checkbox"
+              checked={musicEnabled}
+              onChange={(e) => {
+                e.stopPropagation();
+                onMusicEnabledChange?.(e.target.checked);
+              }}
+            />
+            Music
+          </label>
+        </div>
+      ) : null}
       <div className="loadingAudioVizWrap">
         {vizLive ? (
           <AudioSpectrumViz
             getAnalyser={getAnalyser}
             getBeatAnalyser={getBeatAnalyser}
-            musicEnabled={musicEnabled}
+            musicEnabled={vizEnabled}
             active={active}
-            resetKey="loading"
+            resetKey={resetKey}
             canvasClassName="loadingAudioViz"
             synthFallback={false}
           />
-        ) : musicEnabled ? (
+        ) : vizEnabled ? (
           <LoadingAudioVizSkeleton />
         ) : (
           <div className="loadingAudioVizIdle" aria-hidden="true" />

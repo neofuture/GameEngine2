@@ -2,14 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState, Fragment } from "react";
 import Link from "next/link";
+import * as THREE from "three";
 import {
+  createSoundManager,
   DEFAULT_LEVEL_TRACK_ID,
   DEFAULT_LOADING_TRACK_ID,
+  loadStoredLoadingTrackId,
+  MUSIC_TRACK_KEY,
   MUSIC_TRACKS,
 } from "@/lib/Sound";
 import "@/app/credits/credits.css";
 import CreditsRiflePreview from "@/components/CreditsRiflePreview";
+import CreditsAmmoCratePreview from "@/components/CreditsAmmoCratePreview";
 import CreditsBigBangFinale from "@/components/CreditsBigBangFinale";
+import LoadingAudioViz from "@/components/LoadingAudioViz";
 
 const CARL = "Carl Fearby";
 
@@ -34,6 +40,11 @@ function trio(offset = 0) {
 
 const SCROLL_SPEED = 95;
 const INTRO_DELAY_S = 2;
+const SCROLL_FAST_FACTOR = 0.14;
+const THE_END_HOLD_MS = 5000;
+const THANK_YOU_MS = 3000;
+/** Pause once THE END has scrolled this far above viewport center (visual centering). */
+const THE_END_CENTER_BIAS_PX = 36;
 
 /** Per-track soundtrack credits — tongue firmly in cheek. */
 const TRACK_SONG_CREDITS = Object.freeze({
@@ -662,12 +673,10 @@ function CreditsPropImg({ id, className = "" }) {
   return <CreditsAsset id={id} className={className} />;
 }
 
-function CreditsAmmoCrate() {
+function CreditsAmmoCrate({ variant = "default" }) {
   return (
-    <div className="creditsAmmoCrate" aria-hidden>
-      <CreditsPropImg id="crate-end" className="creditsCrateEnd" />
-      <CreditsPropImg id="crate-top" className="creditsCrateTop" />
-      <CreditsPropImg id="crate-front" className="creditsCrateFront" />
+    <div className={`creditsAmmoCrate creditsAmmoCrate--${variant}`} aria-hidden>
+      <CreditsAmmoCratePreview variant={variant} />
     </div>
   );
 }
@@ -756,7 +765,7 @@ function CreditsPropInsert({ layout, items, item, caption, spin, art }) {
 
       {layout === "cluster" ? (
         <div className="creditsPropCluster">
-          <CreditsAmmoCrate />
+          <CreditsAmmoCrate variant="cluster" />
           <CreditsPropImg id="grenade" className="creditsPropClusterGrenade" />
           <CreditsPropImg id="powepack" className="creditsPropClusterPowepack" />
           <CreditsPropImg id="stamina" className="creditsPropClusterStamina" />
@@ -782,12 +791,123 @@ function CreditsPropInsert({ layout, items, item, caption, spin, art }) {
   );
 }
 
+function CreditsThankYou() {
+  return (
+    <div className="creditsThankYou" aria-live="polite">
+      <p className="creditsThankYouText">Thank You</p>
+    </div>
+  );
+}
+
+function CreditsTrackPlayer({ soundsRef, activeTrackId, onTrackSelect, onClose }) {
+  return (
+    <div
+      className="creditsTrackPlayer"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div className="creditsTrackPlayerInner" onClick={(e) => e.stopPropagation()}>
+        <div className="creditsTrackPlayerViz" aria-hidden>
+          <LoadingAudioViz
+            showToggle={false}
+            getAnalyser={() => soundsRef.current?.getLoadingAnalyser()}
+            getBeatAnalyser={() => soundsRef.current?.getLoadingBeatAnalyser()}
+            isMusicPreloaded={() => soundsRef.current?.isMusicPreloaded()}
+            isLoadingMusicPlaying={() => soundsRef.current?.isLoadingMusicPlaying()}
+            resetKey={activeTrackId}
+          />
+        </div>
+        <div className="creditsTrackPlayerPanel">
+          <p className="creditsTrackPlayerLabel">Soundtrack</p>
+          <p className="creditsTrackPlayerDismiss">Click outside · M · or Esc to close</p>
+          <ul className="creditsTrackList">
+            {MUSIC_TRACKS.map((track) => (
+              <li key={track.id}>
+                <button
+                  type="button"
+                  className={`creditsTrackBtn${activeTrackId === track.id ? " creditsTrackBtn--active" : ""}`}
+                  onClick={() => onTrackSelect(track.id)}
+                  aria-current={activeTrackId === track.id ? "true" : undefined}
+                >
+                  <span className="creditsTrackBtnLabel">{track.label}</span>
+                  <span className="creditsTrackBtnMeta">{trackUsageLabel(track.id)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CreditsScene() {
   const scrollRef = useRef(null);
+  const soundsRef = useRef(null);
+  const preEndMarkerRef = useRef(null);
+  const theEndTitleRef = useRef(null);
+  const preEndProgressRef = useRef(0.88);
+  const endSequenceStartedRef = useRef(false);
+  const holdTimerRef = useRef(0);
+  const thankYouTimerRef = useRef(0);
   const [paused, setPaused] = useState(false);
   const [fast, setFast] = useState(false);
+  const fastRef = useRef(false);
   const [hintVisible, setHintVisible] = useState(true);
   const [ready, setReady] = useState(false);
+  const [playerOpen, setPlayerOpen] = useState(false);
+  const [endPhase, setEndPhase] = useState("scrolling");
+  const [activeTrackId, setActiveTrackId] = useState(DEFAULT_LOADING_TRACK_ID);
+
+  useEffect(() => {
+    setActiveTrackId(loadStoredLoadingTrackId());
+  }, []);
+
+  useEffect(() => {
+    fastRef.current = fast;
+  }, [fast]);
+
+  useEffect(() => {
+    const camera = new THREE.PerspectiveCamera();
+    const sounds = createSoundManager(camera);
+    soundsRef.current = sounds;
+
+    let cancelled = false;
+    sounds.preload().then(() => {
+      if (cancelled) return;
+      sounds.resume();
+      sounds.startLoadingMusic({ trackId: loadStoredLoadingTrackId() });
+    });
+
+    return () => {
+      cancelled = true;
+      sounds.dispose();
+      soundsRef.current = null;
+    };
+  }, []);
+
+  const ensureLoadingMusic = useCallback(() => {
+    const s = soundsRef.current;
+    if (!s) return;
+    s.resume();
+    if (!s.isLoadingMusicPlaying()) {
+      s.startLoadingMusic({ trackId: activeTrackId });
+    }
+  }, [activeTrackId]);
+
+  const handleTrackSelect = useCallback((trackId) => {
+    setActiveTrackId(trackId);
+    localStorage.setItem(MUSIC_TRACK_KEY, trackId);
+    const s = soundsRef.current;
+    if (!s) return;
+    s.resume();
+    s.setLoadingTrack(trackId);
+    if (!s.isLoadingMusicPlaying()) {
+      s.startLoadingMusic({ trackId });
+    }
+  }, []);
 
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
@@ -801,18 +921,49 @@ export default function CreditsScene() {
     const el = scrollRef.current;
     if (!el) return;
 
-    const measure = () => {
+    const scrollStartedRef = { current: false };
+    let startTimer = 0;
+
+    const applyMeasure = () => {
       const viewport = el.parentElement?.offsetHeight ?? window.innerHeight;
       const distance = el.offsetHeight + viewport;
       const duration = distance / SCROLL_SPEED;
       el.style.setProperty("--credits-duration", `${duration}s`);
       el.style.setProperty("--credits-delay", `${INTRO_DELAY_S}s`);
-      setReady(true);
     };
 
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    const scheduleStart = () => {
+      if (scrollStartedRef.current) return;
+      clearTimeout(startTimer);
+      startTimer = window.setTimeout(() => {
+        if (scrollStartedRef.current) return;
+        scrollStartedRef.current = true;
+        setReady(true);
+      }, 400);
+    };
+
+    applyMeasure();
+    scheduleStart();
+
+    const ro = new ResizeObserver(() => {
+      if (scrollStartedRef.current) return;
+      applyMeasure();
+      scheduleStart();
+    });
+    ro.observe(el);
+
+    const onResize = () => {
+      if (scrollStartedRef.current) return;
+      applyMeasure();
+      scheduleStart();
+    };
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      clearTimeout(startTimer);
+      ro.disconnect();
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   useEffect(() => {
@@ -820,31 +971,253 @@ export default function CreditsScene() {
     return () => clearTimeout(timer);
   }, []);
 
-  const togglePause = useCallback(() => {
-    setPaused((p) => !p);
-    setHintVisible(false);
+  const measurePreEndProgress = useCallback(() => {
+    const el = scrollRef.current;
+    const marker = preEndMarkerRef.current;
+    const viewport = el?.parentElement;
+    if (!el || !marker || !viewport) return;
+
+    const viewH = viewport.clientHeight;
+    const scrollH = el.offsetHeight;
+    const yStart = viewH;
+    const yEnd = -scrollH;
+    const savedAnimation = el.style.animation;
+    const savedTransform = el.style.transform;
+
+    el.style.animation = "none";
+    let best = 0.88;
+
+    for (let i = 0; i <= 48; i++) {
+      const p = i / 48;
+      const y = yStart + (yEnd - yStart) * p;
+      el.style.transform = `translate3d(-50%, ${y}px, 0)`;
+      const markerBottom = marker.getBoundingClientRect().bottom;
+      const viewBottom = viewport.getBoundingClientRect().bottom;
+      if (markerBottom <= viewBottom + 16) {
+        best = Math.max(0, p - 0.025);
+        break;
+      }
+    }
+
+    preEndProgressRef.current = best;
+    el.style.animation = savedAnimation;
+    el.style.transform = savedTransform;
   }, []);
 
+  const getBaseScrollDurationSec = useCallback((el) => {
+    return parseFloat(getComputedStyle(el).getPropertyValue("--credits-duration")) || 480;
+  }, []);
+
+  const getScrollDurationSec = useCallback(
+    (el, useFast = fastRef.current) => {
+      const base = getBaseScrollDurationSec(el);
+      return useFast ? base * SCROLL_FAST_FACTOR : base;
+    },
+    [getBaseScrollDurationSec],
+  );
+
+  const readScrollProgress = useCallback((el) => {
+    const anim = el.getAnimations().find((a) => a.animationName === "creditsRise");
+    if (!anim?.effect) return 0;
+    const timing = anim.effect.getComputedTiming();
+    const delay = typeof timing.delay === "number" ? timing.delay : 0;
+    const duration = typeof timing.duration === "number" ? timing.duration : 0;
+    if (duration <= 0) return 0;
+    return Math.max(0, Math.min(1, (anim.currentTime - delay) / duration));
+  }, []);
+
+  const applyScrollProgress = useCallback(
+    (el, progress, { useFast = fastRef.current, playState = "running" } = {}) => {
+      const durationSec = getScrollDurationSec(el, useFast);
+      const elapsedSec = Math.max(0, progress * durationSec);
+      const delaySec = INTRO_DELAY_S - elapsedSec;
+
+      el.getAnimations().forEach((a) => {
+        if (a.animationName === "creditsRise") a.cancel();
+      });
+
+      el.style.animation = "none";
+      el.style.transform = "";
+      void el.offsetHeight;
+
+      el.style.animation = `creditsRise ${durationSec}s linear ${delaySec}s forwards`;
+      el.style.animationPlayState = playState;
+    },
+    [getScrollDurationSec],
+  );
+
+  const jumpToPreEnd = useCallback(() => {
+    if (endSequenceStartedRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+
+    measurePreEndProgress();
+    applyScrollProgress(el, preEndProgressRef.current);
+    setPaused(false);
+    setEndPhase("scrolling");
+    setHintVisible(false);
+  }, [measurePreEndProgress, applyScrollProgress]);
+
+  const startThankYou = useCallback(() => {
+    setEndPhase("thankYou");
+    clearTimeout(thankYouTimerRef.current);
+    thankYouTimerRef.current = window.setTimeout(() => {
+      setEndPhase("done");
+      setPlayerOpen(true);
+      setHintVisible(false);
+      ensureLoadingMusic();
+    }, THANK_YOU_MS);
+  }, [ensureLoadingMusic]);
+
+  const beginTheEndHold = useCallback(() => {
+    if (endSequenceStartedRef.current) return;
+    endSequenceStartedRef.current = true;
+    setPaused(true);
+    setEndPhase("theEndHold");
+    setHintVisible(false);
+    clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = window.setTimeout(startThankYou, THE_END_HOLD_MS);
+  }, [startThankYou]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !ready) return;
+
+    const onAnimationEnd = (event) => {
+      if (event.animationName !== "creditsRise") return;
+      beginTheEndHold();
+    };
+
+    el.addEventListener("animationend", onAnimationEnd);
+    return () => el.removeEventListener("animationend", onAnimationEnd);
+  }, [ready, beginTheEndHold]);
+
+  useEffect(() => {
+    if (!ready || endPhase !== "scrolling" || paused) return;
+
+    let rafId = 0;
+    const tick = () => {
+      if (endSequenceStartedRef.current || endPhase !== "scrolling") return;
+
+      const el = scrollRef.current;
+      const title = theEndTitleRef.current;
+      const viewport = el?.parentElement;
+      if (el && title && viewport) {
+        const titleRect = title.getBoundingClientRect();
+        const viewRect = viewport.getBoundingClientRect();
+        const titleCy = titleRect.top + titleRect.height / 2;
+        const viewCy = viewRect.top + viewRect.height / 2;
+        const targetCy = viewCy - THE_END_CENTER_BIAS_PX;
+        const settleSlack = Math.min(20, viewRect.height * 0.025);
+        if (titleCy <= targetCy + settleSlack) {
+          beginTheEndHold();
+          return;
+        }
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [ready, endPhase, paused, beginTheEndHold]);
+
+  useEffect(
+    () => () => {
+      clearTimeout(holdTimerRef.current);
+      clearTimeout(thankYouTimerRef.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !ready) return;
+    el.style.animationPlayState = paused ? "paused" : "running";
+  }, [paused, ready]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !ready || endSequenceStartedRef.current) return;
+
+    const hasInlineScroll =
+      el.style.animation && el.style.animation !== "none" && el.style.animation.includes("creditsRise");
+
+    if (!hasInlineScroll) return;
+
+    const progress = readScrollProgress(el);
+    applyScrollProgress(el, progress, {
+      playState: paused ? "paused" : "running",
+    });
+  }, [fast, ready, paused, readScrollProgress, applyScrollProgress]);
+
+  const togglePause = useCallback(() => {
+    if (endPhase === "theEndHold" || endPhase === "thankYou") return;
+    ensureLoadingMusic();
+    setPaused((p) => !p);
+    setHintVisible(false);
+  }, [ensureLoadingMusic, endPhase]);
+
   const toggleFast = useCallback((e) => {
-    e.stopPropagation();
+    e?.stopPropagation?.();
     setFast((f) => !f);
     setHintVisible(false);
   }, []);
 
+  const canControlScroll = useCallback(
+    () => !playerOpen && endPhase !== "theEndHold" && endPhase !== "thankYou",
+    [playerOpen, endPhase],
+  );
+
+  const openPlayer = useCallback(() => {
+    setPlayerOpen(true);
+    setHintVisible(false);
+    ensureLoadingMusic();
+  }, [ensureLoadingMusic]);
+
+  const closePlayer = useCallback(() => {
+    setPlayerOpen(false);
+  }, []);
+
+  const togglePlayer = useCallback(() => {
+    if (playerOpen) closePlayer();
+    else openPlayer();
+  }, [playerOpen, openPlayer, closePlayer]);
+
   useEffect(() => {
     const onKey = (e) => {
-      if (e.code === "Space") {
+      if (e.code === "Space" && canControlScroll()) {
         e.preventDefault();
         togglePause();
       }
-      if (e.code === "KeyF") toggleFast({ stopPropagation: () => {} });
+      if ((e.code === "KeyS" || e.code === "KeyF") && canControlScroll()) {
+        e.preventDefault();
+        toggleFast();
+      }
+      if (e.code === "KeyM") {
+        e.preventDefault();
+        togglePlayer();
+      }
+      if (e.code === "Escape" && playerOpen) {
+        e.preventDefault();
+        closePlayer();
+      }
+      if (e.code === "Period" && !playerOpen && endPhase !== "thankYou") {
+        e.preventDefault();
+        jumpToPreEnd();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePause, toggleFast]);
+  }, [togglePause, toggleFast, togglePlayer, closePlayer, playerOpen, endPhase, jumpToPreEnd, canControlScroll]);
 
   return (
-    <div className="creditsRoot" onClick={togglePause}>
+    <div
+      className={`creditsRoot${playerOpen ? " creditsRoot--playerOpen" : ""}${endPhase === "theEndHold" ? " creditsRoot--theEndHold" : ""}`}
+      onClick={() => {
+        if (!playerOpen) togglePause();
+      }}
+    >
       <CreditsDecor />
       <div className="creditsGrain" aria-hidden />
       <div className="creditsIntroCurtain" aria-hidden />
@@ -854,8 +1227,47 @@ export default function CreditsScene() {
         ← Back to Game
       </Link>
 
-      <div className={`creditsHint${hintVisible ? "" : " hidden"}`}>
-        Click or Space to pause · F to speed up
+      {!playerOpen ? (
+        <div
+          className="creditsMusicBar"
+          role="button"
+          tabIndex={0}
+          aria-label="Open soundtrack player"
+          onClick={(e) => {
+            e.stopPropagation();
+            openPlayer();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              openPlayer();
+            }
+          }}
+        >
+          <LoadingAudioViz
+            showToggle={false}
+            getAnalyser={() => soundsRef.current?.getLoadingAnalyser()}
+            getBeatAnalyser={() => soundsRef.current?.getLoadingBeatAnalyser()}
+            isMusicPreloaded={() => soundsRef.current?.isMusicPreloaded()}
+            isLoadingMusicPlaying={() => soundsRef.current?.isLoadingMusicPlaying()}
+          />
+        </div>
+      ) : null}
+
+      {playerOpen ? (
+        <CreditsTrackPlayer
+          soundsRef={soundsRef}
+          activeTrackId={activeTrackId}
+          onTrackSelect={handleTrackSelect}
+          onClose={closePlayer}
+        />
+      ) : null}
+
+      {endPhase === "thankYou" ? <CreditsThankYou /> : null}
+
+      <div className={`creditsHint${hintVisible && !playerOpen && endPhase === "scrolling" ? "" : " hidden"}`}>
+        Click or Space to pause · S fast-forward · M or top-right viz for soundtrack · . skip to finale
       </div>
 
       <div className="creditsViewport">
@@ -940,7 +1352,9 @@ export default function CreditsScene() {
 
           <div className="creditsSpacerLg" />
 
-          <CreditsBigBangFinale />
+          <div ref={preEndMarkerRef} className="creditsPreEndMarker" aria-hidden />
+
+          <CreditsBigBangFinale titleRef={theEndTitleRef} />
 
           <div className="creditsSpacerLg" />
           <div className="creditsSpacerLg" />

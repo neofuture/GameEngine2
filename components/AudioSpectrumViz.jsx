@@ -179,12 +179,13 @@ function drawSpectrum(ctx, w, h, values) {
   const ceiling = padY;
   const maxH = floor - ceiling;
   const gap = Math.max(1, w * 0.004);
-  const innerW = w - padX * 2;
-  const barW = (innerW - gap * (BAR_COUNT - 1)) / BAR_COUNT;
+  const innerW = Math.max(0, w - padX * 2);
+  const barW = Math.max(0, (innerW - gap * (BAR_COUNT - 1)) / BAR_COUNT);
+  if (barW <= 0) return;
 
   for (let i = 0; i < BAR_COUNT; i++) {
     const v = values[i];
-    const barH = v * maxH;
+    const barH = Math.max(0, v * maxH);
     const x = padX + i * (barW + gap);
     const cx = x + barW * 0.5;
     const y = floor - barH;
@@ -198,12 +199,13 @@ function drawSpectrum(ctx, w, h, values) {
     grad.addColorStop(0.4, `rgba(70, ${120 + tint * 16}, 230, ${0.2 + v * 0.18})`);
     grad.addColorStop(1, `rgba(${50 + tint * 24}, 40, 160, ${0.18 + v * 0.16})`);
     ctx.fillStyle = grad;
-    ctx.fillRect(x, y, barW, barH);
+    if (barH > 0) ctx.fillRect(x, y, barW, barH);
 
-    if (v > 0.38) {
+    const capRadius = barW * 0.3;
+    if (v > 0.38 && capRadius > 0) {
       ctx.fillStyle = `rgba(170, 200, 255, ${(v - 0.38) * 0.22})`;
       ctx.beginPath();
-      ctx.arc(cx, y, barW * 0.3, 0, Math.PI * 2);
+      ctx.arc(cx, y, capRadius, 0, Math.PI * 2);
       ctx.fill();
     }
   }

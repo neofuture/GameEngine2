@@ -306,6 +306,7 @@
   inset: 0;
   overflow: hidden;
   z-index: 5;
+  transition: filter 0.4s ease;
 }
 
 .creditsFadeTop,
@@ -366,6 +367,12 @@
   text-align: center;
   will-change: transform;
   transform: translate3d(-50%, 100vh, 0);
+  backface-visibility: hidden;
+}
+
+.creditsRoot--playerOpen .creditsViewport {
+  filter: blur(6px) brightness(0.72) saturate(0.95);
+  pointer-events: none;
 }
 
 .creditsScroll.creditsScrollReady {
@@ -1223,6 +1230,208 @@
   opacity: 0;
 }
 
+.creditsMusicBar {
+  position: fixed;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 14;
+  width: min(320px, 42vw);
+  opacity: 0;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: opacity 0.35s ease;
+}
+
+.creditsRoot:hover .creditsMusicBar,
+.creditsMusicBar:focus-within {
+  opacity: 1;
+}
+
+.creditsMusicBar .loadingAudioBar {
+  width: 100%;
+}
+
+.creditsTrackPlayer {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  pointer-events: auto;
+  isolation: isolate;
+}
+
+.creditsTrackPlayer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(3, 6, 14, 0.38);
+  animation: creditsPlayerBackdropIn 0.35s ease forwards;
+}
+
+.creditsTrackPlayerInner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+  width: min(920px, 94vw);
+  pointer-events: auto;
+  animation: creditsPlayerIn 0.65s ease forwards;
+}
+
+@keyframes creditsPlayerIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes creditsPlayerBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.creditsTrackPlayerViz {
+  flex: 1.15 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.creditsTrackPlayerViz .loadingAudioVizWrap {
+  background: linear-gradient(
+    135deg,
+    rgba(94, 170, 255, 0.5) 0%,
+    rgba(70, 90, 220, 0.35) 45%,
+    rgba(94, 170, 255, 0.42) 100%
+  );
+}
+
+.creditsTrackPlayer .loadingAudioBar {
+  width: 100%;
+}
+
+.creditsTrackPlayer .loadingAudioViz {
+  height: min(220px, 34vh);
+}
+
+.creditsTrackPlayerPanel {
+  flex: 1 1 0;
+  min-width: min(100%, 320px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid rgba(94, 170, 255, 0.45);
+  background: linear-gradient(
+    180deg,
+    rgba(8, 20, 40, 0.97) 0%,
+    rgba(3, 5, 8, 0.99) 100%
+  );
+  padding: 0.85rem 0.9rem;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(94, 170, 255, 0.12) inset;
+}
+
+@media (max-width: 720px) {
+  .creditsTrackPlayerInner {
+    flex-direction: column;
+    width: min(420px, 94vw);
+  }
+
+  .creditsTrackPlayer .loadingAudioViz {
+    height: min(168px, 28vh);
+  }
+}
+
+.creditsTrackPlayerLabel {
+  margin: 0 0 0.25rem;
+  font-family: var(--credits-font);
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--credits-blue-dim);
+}
+
+.creditsTrackPlayerDismiss {
+  margin: 0 0 0.55rem;
+  font-family: var(--credits-mono);
+  font-size: 0.52rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(180, 210, 255, 0.38);
+}
+
+.creditsTrackList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.creditsTrackBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(94, 170, 255, 0.22);
+  background: rgba(6, 14, 28, 0.55);
+  color: var(--credits-text);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.creditsTrackBtn:hover {
+  border-color: rgba(94, 170, 255, 0.5);
+  background: rgba(20, 50, 90, 0.45);
+}
+
+.creditsTrackBtn--active {
+  border-color: rgba(94, 170, 255, 0.75);
+  background: linear-gradient(
+    180deg,
+    rgba(30, 160, 255, 0.22) 0%,
+    rgba(20, 120, 210, 0.12) 100%
+  );
+  box-shadow: 0 0 18px rgba(94, 170, 255, 0.18);
+}
+
+.creditsTrackBtnLabel {
+  font-family: var(--credits-font);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--credits-blue-soft);
+}
+
+.creditsTrackBtnMeta {
+  font-family: var(--credits-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(180, 210, 255, 0.42);
+}
+
 .creditsBack {
   position: fixed;
   top: 1.25rem;
@@ -1280,44 +1489,26 @@
     drop-shadow(0 0 18px rgba(94, 170, 255, 0.18));
 }
 
-/* Ammo crate — three-face assembly */
+/* Ammo crate — in-game 3D preview */
 .creditsAmmoCrate {
   position: relative;
   width: min(220px, 55vw);
-  height: min(180px, 38vw);
+  height: min(220px, 55vw);
   margin: 0 auto 0.75rem;
   animation: creditsPropFloat 4.5s ease-in-out infinite;
 }
 
-.creditsCrateFront {
-  position: absolute;
-  left: 50%;
-  bottom: 8%;
-  width: 72%;
-  transform: translateX(-50%);
-  z-index: 3;
+.creditsAmmoCrate--cluster {
+  width: min(180px, 42vw);
+  height: min(180px, 42vw);
 }
 
-.creditsCrateTop {
-  position: absolute;
-  left: 50%;
-  top: 6%;
-  width: 68%;
-  transform: translateX(-50%) perspective(400px) rotateX(52deg) scaleY(0.55);
-  transform-origin: 50% 100%;
-  z-index: 2;
-  opacity: 0.92;
-}
-
-.creditsCrateEnd {
-  position: absolute;
-  right: 2%;
-  bottom: 12%;
-  width: 34%;
-  transform: perspective(400px) rotateY(-48deg) scaleX(0.72);
-  transform-origin: 0% 50%;
-  z-index: 1;
-  opacity: 0.88;
+.creditsAmmoCrateCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.55))
+    drop-shadow(0 0 18px rgba(94, 170, 255, 0.18));
 }
 
 @keyframes creditsPropFloat {
@@ -1792,6 +1983,75 @@
   text-align: center;
   margin-left: auto;
   margin-right: auto;
+}
+
+.creditsPreEndMarker {
+  height: 0;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.creditsRoot--theEndHold .creditsBigBang {
+  filter: brightness(1.08);
+}
+
+.creditsRoot--theEndHold .creditsBigBangTitle {
+  animation: none;
+  text-shadow:
+    0 0 32px rgba(94, 170, 255, 0.55),
+    0 0 64px rgba(94, 170, 255, 0.25);
+}
+
+/* === Thank you =============================================================== */
+
+.creditsThankYou {
+  position: fixed;
+  inset: 0;
+  z-index: 18;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.creditsThankYouText {
+  margin: 0;
+  font-family: var(--credits-font);
+  font-size: clamp(2.2rem, 9vw, 5rem);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #e8c66a;
+  text-shadow:
+    0 0 24px rgba(232, 198, 106, 0.65),
+    0 0 48px rgba(212, 168, 83, 0.35),
+    0 2px 0 rgba(120, 90, 30, 0.8);
+  animation: creditsThankYouZoom 3s ease-out forwards;
+}
+
+@keyframes creditsThankYouZoom {
+  0% {
+    opacity: 0;
+    transform: scale(0.15);
+  }
+
+  18% {
+    opacity: 1;
+    transform: scale(0.85);
+  }
+
+  55% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(2.8);
+  }
 }
 
 /* === Big bang finale ========================================================= */
