@@ -106,6 +106,34 @@ body {
   }
 }
 
+.loadingCreditsLink {
+  position: fixed;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 101;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: rgba(180, 210, 255, 0.88);
+  padding: 0.5rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid rgba(94, 170, 255, 0.35);
+  background: linear-gradient(180deg, rgba(30, 160, 255, 0.18) 0%, rgba(20, 120, 210, 0.1) 100%);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+}
+
+.loadingCreditsLink:hover,
+.loadingCreditsLink:focus-visible {
+  color: #fff;
+  border-color: rgba(94, 170, 255, 0.55);
+  box-shadow: 0 0 16px rgba(94, 170, 255, 0.2);
+}
+
 /* === Loading screen audio bar ============================================== */
 
 .loadingAudioBar {
@@ -219,6 +247,9 @@ body {
 /* =========================================================================== */
 
 .gameRoot {
+  --hud-compass-width: min(24rem, calc(100vw - 2 * min(22rem, 36vw) - 5rem));
+  --hud-compass-top: 1rem;
+  --hud-compass-height: calc(var(--hud-compass-width) * 292 / 1828);
   position: fixed;
   inset: 0;
 }
@@ -364,6 +395,99 @@ body {
 
 .hudFireModeActive .hudFireModeLabel {
   color: #e8eeff;
+}
+
+/* Dial compass — embedded in bottom ammo bar (right side) */
+.hudBarCompass {
+  position: absolute;
+  left: var(--hud-bar-compass-x, 92%);
+  top: var(--hud-bar-compass-y, 21%);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.hudBarCompassRing {
+  position: relative;
+  width: var(--hud-bar-compass-size, clamp(2.2rem, 6.3vw, 3.6rem));
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.hudBarCompassDial {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
+.hudBarCompassMark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 0.2rem;
+  font-family: var(--font-futuristic), "Orbitron", "Eurostile", "Rajdhani", sans-serif;
+  font-size: clamp(0.4rem, 0.85vw, 0.6rem);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgba(94, 170, 255, 0.55);
+  transform-origin: 50% 50%;
+  text-shadow: 0 0 4px rgba(59, 123, 255, 0.3);
+}
+
+.hudBarCompassN { color: #e8eeff; text-shadow: 0 0 6px rgba(94, 170, 255, 0.7); }
+.hudBarCompassE { transform: rotate(90deg); }
+.hudBarCompassS { transform: rotate(180deg); }
+.hudBarCompassW { transform: rotate(270deg); }
+
+.hudBarCompassNeedle {
+  position: absolute;
+  left: 50%;
+  top: 0.22rem;
+  width: 0;
+  height: 0;
+  margin-left: -3px;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-bottom: 5px solid #5eaaff;
+  filter: drop-shadow(0 0 3px rgba(94, 170, 255, 0.6));
+}
+
+.hudBarCompassDots {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hudBarCompassDot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: rgb(220, 40, 30);
+  box-shadow: 0 0 4px rgba(220, 40, 30, 0.8), 0 0 8px rgba(220, 40, 30, 0.4);
+}
+
+.hudBarCompassBearing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-futuristic), "Orbitron", "Eurostile", "Rajdhani", sans-serif;
+  font-size: clamp(0.45rem, 0.9vw, 0.7rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  color: #5eaaff;
+  text-shadow: 0 0 6px rgba(59, 123, 255, 0.5);
+  pointer-events: none;
 }
 
 .hudHealthOverload {
@@ -1190,66 +1314,140 @@ body {
   font-size: 0.78rem;
 }
 
-/* === HUD-embedded compass (right side, mirrors the cog) ================== */
+/* === Top-centre compass (between stamina + health bars) ================== */
 .hudCompass {
-  position: absolute;
-  left: var(--hud-compass-x, 92%);
-  top: var(--hud-compass-y, 21%);
+  position: fixed;
+  top: var(--hud-compass-top);
+  left: 50%;
   transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2%;
+  z-index: 15;
   pointer-events: none;
+  width: var(--hud-compass-width);
 }
 
-.hudCompassRing {
+.hudCompassFrame {
   position: relative;
-  width: var(--hud-compass-size, clamp(2.2rem, 4.5vw, 3.6rem));
-  aspect-ratio: 1;
-  border-radius: 50%;
-  border: none;
-  background: transparent;
+  width: 100%;
+  aspect-ratio: 1828 / 292;
 }
 
-.hudCompassDial {
+.hudCompassBg {
+  display: block;
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+  position: relative;
+  z-index: 1;
+}
+
+.hudCompassViewport {
   position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  transform-origin: 50% 50%;
+  left: 5.2%;
+  right: 5.2%;
+  top: 22%;
+  bottom: 18%;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.hudCompassTape {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
   will-change: transform;
 }
 
-.hudCompassMark {
+.hudCompassTick {
   position: absolute;
-  inset: 0;
+  top: 0;
+  height: 100%;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 0.2rem;
-  font-family: var(--font-futuristic), "Orbitron", "Eurostile", "Rajdhani", sans-serif;
-  font-size: clamp(0.4rem, 0.85vw, 0.6rem);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: rgba(94, 170, 255, 0.55);
-  transform-origin: 50% 50%;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
 }
 
-.hudCompassN { color: #e8eeff; }
-.hudCompassE { transform: rotate(90deg); }
-.hudCompassS { transform: rotate(180deg); }
-.hudCompassW { transform: rotate(270deg); }
+.hudCompassTickLine {
+  display: block;
+  width: 1px;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: rgba(94, 170, 255, 0.38);
+  box-shadow: 0 0 4px rgba(94, 170, 255, 0.28);
+}
+
+.hudCompassTickMajor .hudCompassTickLine {
+  width: 2px;
+  background: rgba(130, 205, 255, 0.78);
+  box-shadow: 0 0 6px rgba(120, 200, 255, 0.5);
+}
+
+.hudCompassTickCardinal .hudCompassTickLine {
+  width: 2.5px;
+  background: rgba(150, 210, 255, 0.95);
+  box-shadow: 0 0 6px rgba(94, 170, 255, 0.55);
+}
+
+.hudCompassTick:not(.hudCompassTickMajor) .hudCompassTickLine {
+  flex: 0 0 42%;
+  margin-top: 0;
+}
+
+.hudCompassTickLabel {
+  flex: 0 0 auto;
+  margin-top: 0.28rem;
+  font-family: var(--font-futuristic), "Orbitron", "Eurostile", "Rajdhani", sans-serif;
+  font-size: clamp(0.34rem, 0.46vw, 0.5rem);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  color: rgba(142, 200, 255, 0.82);
+  white-space: nowrap;
+  text-shadow: 0 0 8px rgba(94, 170, 255, 0.4);
+}
+
+.hudCompassTickLabelCardinal {
+  font-size: clamp(0.52rem, 0.72vw, 0.72rem);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #e8b84a;
+  text-shadow: 0 0 8px rgba(232, 184, 74, 0.55);
+}
+
+.hudCompassTickLabelNorth {
+  color: #ffd978;
+  text-shadow: 0 0 10px rgba(255, 217, 120, 0.65);
+}
+
+.hudCompassPin {
+  position: absolute;
+  left: calc(50% + 2px);
+  top: 15%;
+  height: 68%;
+  width: auto;
+  transform: translateX(-50%);
+  z-index: 3;
+  pointer-events: none;
+  filter: drop-shadow(0 0 6px rgba(120, 210, 255, 0.65));
+}
+
+.hudCompassMarkers {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 4;
+}
 
 .hudCompassPointer {
   position: absolute;
+  top: 4%;
   left: 50%;
-  top: 0.22rem;
-  width: 0;
-  height: 0;
-  margin-left: -3px;
-  border-left: 3px solid transparent;
-  border-right: 3px solid transparent;
-  border-bottom: 5px solid #5eaaff;
+  height: 42%;
+  width: auto;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
 }
 
 /* === Radar — bottom left ================================================== */
@@ -1322,21 +1520,6 @@ body {
   margin: -2.5px 0 0 -2.5px;
   border-radius: 50%;
   background: rgba(120, 200, 255, 0.9);
-}
-
-.hudCompassBearing {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-futuristic), "Orbitron", "Eurostile", "Rajdhani", sans-serif;
-  font-size: clamp(0.45rem, 0.9vw, 0.7rem);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.06em;
-  color: #5eaaff;
-  pointer-events: none;
 }
 
 .crosshair {
@@ -1490,7 +1673,9 @@ body {
   --pickup-label-size: 11px;
   --pickup-row-pad: 0.25rem;
   position: fixed;
-  top: 0;
+  top: calc(
+    var(--hud-compass-top, 1rem) + var(--hud-compass-height, 3.85rem) + 0.45rem
+  );
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -1658,6 +1843,47 @@ body {
   aspect-ratio: 3185 / 543;
   pointer-events: none;
   visibility: hidden;
+}
+
+.settingsDevCoords {
+  margin-top: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.35rem;
+  background: rgba(8, 12, 20, 0.95);
+  border: 1px solid rgba(94, 170, 255, 0.35);
+  font-family: var(--font-futuristic), "Orbitron", "Rajdhani", monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  color: rgba(170, 220, 255, 0.95);
+  user-select: all;
+  word-break: break-word;
+}
+
+.hudPlayerCoords {
+  position: fixed;
+  bottom: 6.5rem;
+  left: 1rem;
+  z-index: 15;
+  max-width: min(24rem, 92vw);
+  padding: 0.28rem 0.45rem;
+  border-radius: 0.25rem;
+  background: rgba(4, 12, 24, 0.82);
+  border: 1px solid rgba(94, 170, 255, 0.35);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-futuristic), "Orbitron", "Rajdhani", monospace;
+  font-size: clamp(0.58rem, 0.72vw, 0.72rem);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+  color: rgba(170, 220, 255, 0.95);
+  pointer-events: auto;
+  cursor: copy;
+  user-select: all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hudStaminaBar::before {

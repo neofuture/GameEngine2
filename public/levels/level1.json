@@ -78,7 +78,12 @@
       "z": 0,
       "shape": "rounded",
       "texture": "decal_hazard_stripes_worn",
-      "note": "Center pillar — hazard stripes on rounded column"
+      "poster": "/ui/vx-27poster.png",
+      "posterWidth": 1.056,
+      "posterScale": 0.8,
+      "posterRollDeg": 5,
+      "posterYaw": 0,
+      "note": "Center pillar — hazard stripes + VX-27 promo poster (faces +Z)"
     }
   ],
   "target": {
@@ -97,5 +102,14 @@
         "note": "On floor north of hole (-8, 2) — shoot to topple onto floor then slide into hole"
       }
     ]
-  }
+  },
+  "collectibles": [
+    {
+      "id": "catwalk_ammo_crate",
+      "type": "ammo",
+      "preset": "catwalkBackRight",
+      "value": 10,
+      "note": "Ammo crate on catwalk back-right corner — shown on compass until collected"
+    }
+  ]
 }

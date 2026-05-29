@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { memo, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { createLevelFromArena, disposeLevelGroup } from "@/lib/Level";
@@ -55,6 +56,14 @@ import {
   preloadAmmoCrateAssets,
 } from "@/lib/AmmoCrate";
 import {
+  spawnLevelCollectibles,
+  mountCompassCollectibleMarkers,
+  ensureCompassCollectibleMarkers,
+  updateCompassCollectibleMarkers,
+  hideCompassCollectibleMarker,
+  disposeCompassCollectibleMarkers,
+} from "@/lib/LevelCollectibles";
+import {
   spawnGrenade, updateGrenades, disposeAllGrenades,
   updateTrajectoryPreview, hideTrajectoryPreview, disposePreview,
   applyScreenShake, triggerScreenShake,
@@ -64,6 +73,7 @@ import {
   preloadGrenadeAssets,
   PROJECTILE_FLASHBANG,
 } from "@/lib/Grenade";
+import { groundSupportFromLevel } from "@/lib/GroundSupport";
 import { warmupGameGpu, resetGameGpuWarmup } from "@/lib/GpuWarmup";
 import {
   applyTargetHit,
@@ -92,10 +102,8 @@ import {
   updateFlashbangBlindVisuals,
   getFlashbangBlindDurationSec,
   FLASHBANG_BLIND_FULL_SEC,
-  FLASHBANG_BLIND_DIM_SEC,
   FLASHBANG_BLIND_FADE_SEC,
   FLASHBANG_BLIND_FULL_OPACITY,
-  FLASHBANG_BLIND_DIM_OPACITY,
 } from "@/lib/Targets";
 import {
   disposeAllBloodSplatters,
@@ -130,6 +138,15 @@ import StairWalkTunePanel from "@/components/StairWalkTunePanel";
 import HudBarTunePanel from "@/components/HudBarTunePanel";
 import TargetPoseTunePanel from "@/components/TargetPoseTunePanel";
 import LevelObjectTunePanel from "@/components/LevelObjectTunePanel";
+import {
+  shouldDropAmmoCrate,
+  loadAmmoDropSpareThreshold,
+  saveAmmoDropSpareThreshold,
+  AMMO_DROP_SPARE_THRESHOLD_MAX,
+  DEFAULT_AMMO_DROP_SPARE_THRESHOLD,
+} from "@/lib/RewardDropSettings";
+import HudCompass from "@/components/HudCompass";
+import HudBarCompass, { updateHudBarCompass } from "@/components/HudBarCompass";
 import { SettingsSection } from "@/components/SettingsSection";
 import {
   DEFAULT_HEMI_DAY,
@@ -270,6 +287,7 @@ const LEGACY_LOOK_EASE_KEY = "fps-look-ease";
 const RENDER_SCALE_KEY = "fps-render-scale";
 const PLAYER_HEIGHT_KEY = "fps-player-height";
 const SHOW_FPS_KEY = "fps-show-counter";
+const SHOW_PLAYER_COORDS_KEY = "fps-show-player-coords";
 const MUSIC_ENABLED_KEY = "fps-music-enabled";
 const DEFAULT_LOOK = 7;
 const DEFAULT_MOUSE_EASE = 0;
@@ -373,16 +391,15 @@ function hideDeathOverlay(overlayEl) {
   overlayEl.classList.remove("deathOverlayFading");
 }
 
-/** CSS overlay: 3s @ 100% → 1s @ 90% → 3s fade out. HUD stays above (z-index 15+). */
+/** CSS overlay: 3s full blind → smooth fade out. HUD stays above (z-index 15+). */
 function getFlashbangOverlayOpacity(elapsedSec) {
   const fullEnd = FLASHBANG_BLIND_FULL_SEC;
-  const dimEnd = fullEnd + FLASHBANG_BLIND_DIM_SEC;
   const total = getFlashbangBlindDurationSec();
   if (elapsedSec >= total) return 0;
   if (elapsedSec < fullEnd) return FLASHBANG_BLIND_FULL_OPACITY;
-  if (elapsedSec < dimEnd) return FLASHBANG_BLIND_DIM_OPACITY;
-  const fadeT = (elapsedSec - dimEnd) / FLASHBANG_BLIND_FADE_SEC;
-  return FLASHBANG_BLIND_DIM_OPACITY * (1 - fadeT);
+  const fadeT = Math.min(1, (elapsedSec - fullEnd) / FLASHBANG_BLIND_FADE_SEC);
+  const eased = fadeT * fadeT * (3 - 2 * fadeT);
+  return FLASHBANG_BLIND_FULL_OPACITY * (1 - eased);
 }
 
 function updateFlashbangOverlay(el, blindStartMs) {
@@ -579,8 +596,16 @@ export default function FpsGame() {
   const canvasRef = useRef(null);
   const crosshairRef = useRef(null);
   const fpsRef = useRef(null);
-  const compassDialRef = useRef(null);
-  const compassBearingRef = useRef(null);
+  const playerCoordsMenuRef = useRef(null);
+  const playerCoordsHudRef = useRef(null);
+  const showDevOverlayRef = useRef(false);
+  const showPlayerCoordsRef = useRef(false);
+  const compassTapeRef = useRef(null);
+  const compassViewportRef = useRef(null);
+  const compassMarkersRef = useRef(null);
+  const barCompassDialRef = useRef(null);
+  const barCompassBearingRef = useRef(null);
+  const barCompassDotsRef = useRef(null);
   const radarRef = useRef(null);
   const radarSweepRef = useRef(null);
   const radarDotsRef = useRef(null);
@@ -651,9 +676,16 @@ export default function FpsGame() {
   const [showFps, setShowFps] = useState(false);
   const [musicEnabled, setMusicEnabled] = useState(true);
   const musicEnabledRef = useRef(true);
+  const [ammoDropSpareThreshold, setAmmoDropSpareThreshold] = useState(
+    DEFAULT_AMMO_DROP_SPARE_THRESHOLD
+  );
+  const ammoDropSpareThresholdRef = useRef(DEFAULT_AMMO_DROP_SPARE_THRESHOLD);
   const loadingMusicTrackIdRef = useRef(loadStoredLoadingTrackId());
   const levelMusicTrackIdRef = useRef(DEFAULT_LEVEL_TRACK_ID);
   const [showDevOverlay, setShowDevOverlay] = useState(() => window.localStorage.getItem("fps-show-dev-overlay") === "true");
+  const [showPlayerCoords, setShowPlayerCoords] = useState(
+    () => window.localStorage.getItem(SHOW_PLAYER_COORDS_KEY) === "true"
+  );
   const [hudTuneEnabled, setHudTuneEnabled] = useState(false);
   const [hudCogX, setHudCogX] = useState(4);
   const [hudCogY, setHudCogY] = useState(32);
@@ -667,9 +699,9 @@ export default function FpsGame() {
   const [hudValueFont, setHudValueFont] = useState(4.4);
   const [hudLabelY, setHudLabelY] = useState(8);
   const [hudFireModeY, setHudFireModeY] = useState(14.5);
-  const [hudCompassX, setHudCompassX] = useState(92);
-  const [hudCompassY, setHudCompassY] = useState(21);
-  const [hudCompassSize, setHudCompassSize] = useState(6.3);
+  const [hudBarCompassX, setHudBarCompassX] = useState(92);
+  const [hudBarCompassY, setHudBarCompassY] = useState(21);
+  const [hudBarCompassSize, setHudBarCompassSize] = useState(6.3);
   const [hbCorner, setHbCorner] = useState(3);
   const [radarInnerX] = useState(52);
   const [radarInnerY] = useState(50);
@@ -854,6 +886,9 @@ export default function FpsGame() {
   loadDoneRef.current = loadDone;
   if (loadDone) gameSessionStarted = true;
   musicEnabledRef.current = musicEnabled;
+  ammoDropSpareThresholdRef.current = ammoDropSpareThreshold;
+  showDevOverlayRef.current = showDevOverlay;
+  showPlayerCoordsRef.current = showPlayerCoords;
 
   scheduleGameplayHudSyncRef.current = () => {
     if (hudSyncPendingRef.current) return;
@@ -939,6 +974,9 @@ export default function FpsGame() {
     const storedLoadingTrack = loadStoredLoadingTrackId();
     setMusicEnabled(storedMusicEnabled);
     musicEnabledRef.current = storedMusicEnabled;
+    const storedAmmoDropThreshold = loadAmmoDropSpareThreshold();
+    setAmmoDropSpareThreshold(storedAmmoDropThreshold);
+    ammoDropSpareThresholdRef.current = storedAmmoDropThreshold;
     loadingMusicTrackIdRef.current = storedLoadingTrack;
     setWeaponTuneEnabled(tuneEnabled);
     setSunTuneEnabled(sunEnabled);
@@ -1010,6 +1048,7 @@ export default function FpsGame() {
     let bullets = [];
     let hpOrbs = [];
     let ammoDrops = [];
+    let collectibleEntries = [];
     let grenades = [];
     let grenadeDrops = [];
     let bloodSplatters = [];
@@ -1137,6 +1176,13 @@ export default function FpsGame() {
         scene,
         { ...arena, stairs: stairParams },
         levelTextures
+      );
+      const spawnedCollectibles = spawnLevelCollectibles(scene, arena);
+      collectibleEntries = spawnedCollectibles.entries;
+      for (const drop of spawnedCollectibles.drops) ammoDrops.push(drop);
+      mountCompassCollectibleMarkers(
+        compassMarkersRef.current,
+        collectibleEntries
       );
       setArenaHasStairs(Boolean(arena.stairs));
       if (!isActive()) {
@@ -1309,6 +1355,7 @@ export default function FpsGame() {
         getFloorHoles: () => level.floorHoles ?? [],
         getFloorBounds: () => level.floorBounds,
         arenaBounds: level.arenaBounds,
+        wallStandoff: arena.wallStandoff ?? 0.5,
         getDoorwayPassages: () => level.doorwayPassages ?? [],
         getAttachWall: () => level.attachWall ?? "north",
         getIsInRoom: (x, z) =>
@@ -1339,12 +1386,15 @@ export default function FpsGame() {
           if (!loadDoneRef.current) return;
           const t = resolveWalkBobTuning(walkBobTuningRef.current);
           const speedNorm = speed / Math.max(t.walkSpeed, 0.1);
-          const playbackRate = THREE.MathUtils.clamp(speedNorm, 0.82, 1.28);
+          const playbackRate = THREE.MathUtils.clamp(
+            0.94 + (speedNorm - 1) * 0.06,
+            0.9,
+            1.08
+          );
           let volume = 0.5;
           if (crouching) volume *= 0.5;
-          else if (sprinting) volume *= 1.1;
+          else if (sprinting) volume *= 1.08;
           if (onStairs) volume *= stairWalkTuningRef.current.footstepVolumeScale;
-          volume *= THREE.MathUtils.clamp(speedNorm, 0.55, 1.15);
           sounds.playFootstep({ volume, playbackRate });
         },
       });
@@ -1525,7 +1575,7 @@ export default function FpsGame() {
             hpOrbs.push(spawnHpOrb(scene, p, level.floorY))
           );
         }
-        if (spareMagsRef.current <= 1) {
+        if (shouldDropAmmoCrate(spareMagsRef.current, ammoDropSpareThresholdRef.current)) {
           dropAt(rndAngle + Math.PI, ammoDelay, (p) =>
             ammoDrops.push(spawnAmmoDrop(scene, p, level.floorY))
           );
@@ -1572,7 +1622,7 @@ export default function FpsGame() {
         dropAt(rndAngle, hpDelay, (p) =>
           hpOrbs.push(spawnHpOrb(scene, p, level.floorY))
         );
-        if (spareMagsRef.current <= 1) {
+        if (shouldDropAmmoCrate(spareMagsRef.current, ammoDropSpareThresholdRef.current)) {
           dropAt(rndAngle + Math.PI, ammoDelay, (p) =>
             ammoDrops.push(spawnAmmoDrop(scene, p, level.floorY))
           );
@@ -1843,6 +1893,29 @@ export default function FpsGame() {
           if (fpsRef.current) {
             fpsRef.current.textContent = `${Math.round(fpsSmooth)} FPS`;
           }
+          if (player && (settingsOpenRef.current || showPlayerCoordsRef.current)) {
+            const yawDeg = (player.getYaw() * 180) / Math.PI;
+            const footY = player.getFootY();
+            const px = camera.position.x;
+            const pz = camera.position.z;
+            const text =
+              `X ${px.toFixed(3)}  Z ${pz.toFixed(3)}  foot ${footY.toFixed(3)}  eye ${camera.position.y.toFixed(3)}  yaw ${yawDeg.toFixed(1)}°`;
+            const json = JSON.stringify({
+              x: +px.toFixed(3),
+              z: +pz.toFixed(3),
+              footY: +footY.toFixed(3),
+              eyeY: +camera.position.y.toFixed(3),
+              yawDeg: +yawDeg.toFixed(1),
+            });
+            if (settingsOpenRef.current && playerCoordsMenuRef.current) {
+              playerCoordsMenuRef.current.textContent = text;
+              playerCoordsMenuRef.current.dataset.coords = json;
+            }
+            if (showPlayerCoordsRef.current && playerCoordsHudRef.current) {
+              playerCoordsHudRef.current.textContent = text;
+              playerCoordsHudRef.current.dataset.coords = json;
+            }
+          }
         }
 
         // Candle-flicker the warm interior lights. Uses rAF's absolute
@@ -1954,14 +2027,39 @@ export default function FpsGame() {
             frozen = true;
           }
         }
-        if (compassDialRef.current) {
+        if (compassTapeRef.current && compassViewportRef.current) {
           const yawDeg = (player.getYaw() * 180) / Math.PI;
-          compassDialRef.current.style.transform = `rotate(${yawDeg}deg)`;
-          if (compassBearingRef.current) {
-            const bearing = (((-yawDeg % 360) + 360) % 360) | 0;
-            compassBearingRef.current.textContent = `${bearing}°`;
+          const bearing = (((-yawDeg % 360) + 360) % 360);
+          const viewport = compassViewportRef.current;
+          const tape = compassTapeRef.current;
+          const pxPerDeg = viewport.offsetWidth / 105;
+          tape.style.setProperty("--compass-px-per-deg", `${pxPerDeg}px`);
+          const center = viewport.offsetWidth * 0.5;
+          tape.style.transform = `translateX(${center - bearing * pxPerDeg}px)`;
+          if (collectibleEntries.length > 0 && compassMarkersRef.current) {
+            ensureCompassCollectibleMarkers(
+              compassMarkersRef.current,
+              collectibleEntries
+            );
+            updateCompassCollectibleMarkers(
+              collectibleEntries,
+              camera.position.x,
+              camera.position.z,
+              player.getYaw(),
+              viewport,
+              pxPerDeg
+            );
           }
         }
+        updateHudBarCompass({
+          dialRef: barCompassDialRef,
+          bearingRef: barCompassBearingRef,
+          dotsRef: barCompassDotsRef,
+          playerYaw: player.getYaw(),
+          cameraX: camera.position.x,
+          cameraZ: camera.position.z,
+          targets: level?.targets,
+        });
         if (radarDotsRef.current && level?.targets) {
           const px = camera.position.x;
           const pz = camera.position.z;
@@ -2183,7 +2281,8 @@ export default function FpsGame() {
             camera,
             level.floorY,
             allColliders,
-            level.bounds
+            level.bounds,
+            groundSupportFromLevel(level, 0.05)
           );
         } else if (gDown && !canThrowSecondary) {
           hideTrajectoryPreview();
@@ -2206,6 +2305,7 @@ export default function FpsGame() {
               allColliders,
               level.bounds,
               level.floorHoles ?? [],
+              groundSupportFromLevel(level, 0.05),
               throwingFlashbang ? PROJECTILE_FLASHBANG : undefined
             );
             grenades.push(g);
@@ -2244,7 +2344,11 @@ export default function FpsGame() {
             floorY: level.floorY,
             bounds: level.bounds,
             floorHoles: level.floorHoles ?? [],
+            groundSupport: groundSupportFromLevel(level, 0.05),
             simTime,
+            onBloodSplatter: (splatter) => {
+              if (splatter) bloodSplatters.push(splatter);
+            },
             onFloorHit: (pos, impact) => {
               sounds.playGrenadeFloorHit(scene, pos, { impact });
             },
@@ -2351,7 +2455,10 @@ export default function FpsGame() {
 
         updateAmmoDrops(
           ammoDrops, dt, camera.position,
-          (value) => {
+          (value, drop) => {
+            if (drop?.compassMarkerId) {
+              hideCompassCollectibleMarker(collectibleEntries, drop.compassMarkerId);
+            }
             roundsInMagRef.current += value;
             pickupFlashLayerRef.current?.show("ammo");
             sounds.playSupplyPickup();
@@ -2580,6 +2687,7 @@ export default function FpsGame() {
         disposeAllTargetHealthBars(targets);
       }
       disposeAllHpOrbs(hpOrbs);
+      disposeCompassCollectibleMarkers(collectibleEntries);
       for (const d of ammoDrops) {
         d.mesh.parent?.remove(d.mesh);
         if (d.ownMats) for (const m of d.mesh.material) m.dispose();
@@ -2733,6 +2841,15 @@ export default function FpsGame() {
             <div className="loadingAssetLabel">{loadAssetLabel}</div>
           </>
         )}
+        {!loadDone ? (
+          <Link
+            href="/credits"
+            className="loadingCreditsLink"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Credits
+          </Link>
+        ) : null}
       </div>
       <canvas ref={canvasRef} className="gameCanvas" />
       <div
@@ -2759,9 +2876,9 @@ export default function FpsGame() {
           "--hud-value-font": `${hudValueFont}vw`,
           "--hud-label-y": `${hudLabelY}px`,
           "--hud-firemode-y": `${hudFireModeY}%`,
-          "--hud-compass-x": `${hudCompassX}%`,
-          "--hud-compass-y": `${hudCompassY}%`,
-          "--hud-compass-size": `${hudCompassSize}vw`,
+          "--hud-bar-compass-x": `${hudBarCompassX}%`,
+          "--hud-bar-compass-y": `${hudBarCompassY}%`,
+          "--hud-bar-compass-size": `${hudBarCompassSize}vw`,
         }}
       >
         {/* Settings button — sits in the top-left decorative tab */}
@@ -2824,40 +2941,11 @@ export default function FpsGame() {
           </button>
         </div>
 
-        {/* Compass — mirrors the cog on the right side */}
-        <div className="hudCompass">
-          <div className="hudCompassRing">
-            <div ref={compassDialRef} className="hudCompassDial">
-              <span className="hudCompassMark hudCompassN">N</span>
-              <span className="hudCompassMark hudCompassE">E</span>
-              <span className="hudCompassMark hudCompassS">S</span>
-              <span className="hudCompassMark hudCompassW">W</span>
-            </div>
-            <div className="hudCompassPointer" />
-            <span ref={compassBearingRef} className="hudCompassBearing">0°</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Radar — bottom left */}
-      <div className="hudRadar" ref={radarRef} style={{
-        left: `${radarLeft}rem`,
-        bottom: `${radarBottom}rem`,
-        width: `${radarScale}rem`,
-        height: `${radarScale}rem`,
-      }}>
-        <div className="radarRing">
-          <div className="radarInner" style={{
-            left: `${radarInnerX}%`,
-            top: `${radarInnerY}%`,
-            width: `${radarInnerSize}%`,
-            height: `${radarInnerSize}%`,
-          }}>
-            <canvas ref={radarSweepRef} className="radarSweepCanvas" width="200" height="200" />
-            <div ref={radarDotsRef} className="radarDots" />
-            <div className="radarCenter" />
-          </div>
-        </div>
+        <HudBarCompass
+          dialRef={barCompassDialRef}
+          bearingRef={barCompassBearingRef}
+          dotsRef={barCompassDotsRef}
+        />
       </div>
 
       {/* Stamina bar — top left */}
@@ -2911,6 +2999,34 @@ export default function FpsGame() {
           >
             100%
           </span>
+        </div>
+      </div>
+
+      {/* Compass — top centre, aligned with stamina / health bars */}
+      <HudCompass
+        tapeRef={compassTapeRef}
+        viewportRef={compassViewportRef}
+        markersRef={compassMarkersRef}
+      />
+
+      {/* Radar — bottom left */}
+      <div className="hudRadar" ref={radarRef} style={{
+        left: `${radarLeft}rem`,
+        bottom: `${radarBottom}rem`,
+        width: `${radarScale}rem`,
+        height: `${radarScale}rem`,
+      }}>
+        <div className="radarRing">
+          <div className="radarInner" style={{
+            left: `${radarInnerX}%`,
+            top: `${radarInnerY}%`,
+            width: `${radarInnerSize}%`,
+            height: `${radarInnerSize}%`,
+          }}>
+            <canvas ref={radarSweepRef} className="radarSweepCanvas" width="200" height="200" />
+            <div ref={radarDotsRef} className="radarDots" />
+            <div className="radarCenter" />
+          </div>
         </div>
       </div>
 
@@ -3141,6 +3257,34 @@ export default function FpsGame() {
                 Lowers internal rendering resolution. The single biggest
                 framerate knob — fragment shader cost scales with pixel
                 count. 100% = native; 50% = a quarter of the pixels.
+              </p>
+            </SettingsSection>
+
+            <SettingsSection title="Gameplay">
+              <label className="sliderRow">
+                <span className="sliderLabel">
+                  Ammo crate when spare mags ≤{" "}
+                  <output>{ammoDropSpareThreshold}</output>
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={AMMO_DROP_SPARE_THRESHOLD_MAX}
+                  step={1}
+                  value={ammoDropSpareThreshold}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value, 10);
+                    setAmmoDropSpareThreshold(value);
+                    ammoDropSpareThresholdRef.current = value;
+                    saveAmmoDropSpareThreshold(value);
+                  }}
+                />
+              </label>
+              <p className="settingsHint">
+                Enemies drop an ammo crate on kill when your spare magazine
+                count is at or below this value. Default 1 (drops when you have
+                one or no spares left). Set to {AMMO_DROP_SPARE_THRESHOLD_MAX}{" "}
+                to always drop.
               </p>
             </SettingsSection>
 
@@ -3476,6 +3620,40 @@ export default function FpsGame() {
                 Cyan wireframe = hull (broad-phase capture). Colored wireframe = actual body
                 geometry (what precision raycast tests). Gaps between them are misses.
               </p>
+              <p className="settingsGroupLabel">Player position</p>
+              <p className="settingsHint">
+                Live readout while settings are open. Stand at a blocked spot and copy
+                coordinates below.
+              </p>
+              <div
+                ref={playerCoordsMenuRef}
+                className="settingsDevCoords"
+                aria-live="polite"
+              >
+                X —  Z —  foot —
+              </div>
+              <button
+                type="button"
+                className="settingsBtn settingsInlineBtn"
+                onClick={() => {
+                  const json = playerCoordsMenuRef.current?.dataset.coords;
+                  if (json) navigator.clipboard?.writeText(json);
+                }}
+              >
+                Copy coordinates JSON
+              </button>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={showPlayerCoords}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setShowPlayerCoords(checked);
+                    localStorage.setItem(SHOW_PLAYER_COORDS_KEY, String(checked));
+                  }}
+                />
+                Show player coordinates HUD (in-game)
+              </label>
               <label className="settingRow">
                 <input
                   type="checkbox"
@@ -3490,7 +3668,7 @@ export default function FpsGame() {
                     }
                   }}
                 />
-                Show dev overlay (HP buttons)
+                Show dev overlay (HP demo buttons)
               </label>
               <label className="settingRow">
                 <input
@@ -4538,6 +4716,20 @@ export default function FpsGame() {
           <div ref={fpsRef} className="fpsCounter" aria-live="polite">
             — FPS
           </div>
+        </div>
+      )}
+      {showPlayerCoords && !settingsOpen && (
+        <div
+          ref={playerCoordsHudRef}
+          className="hudPlayerCoords"
+          aria-live="polite"
+          title="Click to copy JSON"
+          onClick={() => {
+            const json = playerCoordsHudRef.current?.dataset.coords;
+            if (json) navigator.clipboard?.writeText(json);
+          }}
+        >
+          X —  Z —  foot —
         </div>
       )}
       <PickupFlashLayer ref={pickupFlashLayerRef} />
