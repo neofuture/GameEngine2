@@ -11,16 +11,18 @@ function deckRectPieces(fullMinX, fullMaxX, fullMinZ, fullMaxZ, hole) {
   const gap = 0.01;
   if (fullMinZ < hz0 - gap)
     pieces.push({ minX: fullMinX, maxX: fullMaxX, minZ: fullMinZ, maxZ: Math.min(fullMaxZ, hz0) });
-  if (hz1 + gap < fullMaxZ)
-    pieces.push({ minX: fullMinX, maxX: fullMaxX, minZ: Math.max(fullMinZ, hz1), maxZ: fullMaxZ });
   const zMid0 = Math.max(fullMinZ, hz0);
   const zMid1 = Math.min(fullMaxZ, hz1);
-  if (zMid1 > zMid0 + gap) {
-    if (fullMinX < hx0 - gap)
-      pieces.push({ minX: fullMinX, maxX: Math.min(fullMaxX, hx0), minZ: zMid0, maxZ: zMid1 });
-    if (hx1 + gap < fullMaxX)
-      pieces.push({ minX: Math.max(fullMinX, hx1), maxX: fullMaxX, minZ: zMid0, maxZ: zMid1 });
+  const eastMinX = Math.max(fullMinX, hx1);
+  if (eastMinX + gap < fullMaxX && zMid0 < fullMaxZ - gap)
+    pieces.push({ minX: eastMinX, maxX: fullMaxX, minZ: zMid0, maxZ: fullMaxZ });
+  if (hz1 + gap < fullMaxZ) {
+    const southMaxX = eastMinX + gap < fullMaxX ? eastMinX : fullMaxX;
+    if (southMaxX - fullMinX > gap)
+      pieces.push({ minX: fullMinX, maxX: southMaxX, minZ: Math.max(fullMinZ, hz1), maxZ: fullMaxZ });
   }
+  if (zMid1 > zMid0 + gap && fullMinX < hx0 - gap)
+    pieces.push({ minX: fullMinX, maxX: Math.min(fullMaxX, hx0), minZ: zMid0, maxZ: zMid1 });
   return pieces;
 }
 

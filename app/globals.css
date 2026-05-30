@@ -336,6 +336,11 @@ body {
   color: rgba(94, 170, 255, 0.75);
 }
 
+.hudAmmoValueCompact {
+  font-size: clamp(0.95rem, 2.15vw, 1.55rem);
+  letter-spacing: 0.04em;
+}
+
 /* Section positions driven by CSS custom properties so they can be
  * live-tuned from the Settings modal sliders. */
 .hudAmmoStatLeft   { left: var(--hud-rounds-x, 33%);  top: var(--hud-rounds-y, 10%); }

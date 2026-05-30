@@ -68,6 +68,98 @@
     "ceiling": "wall_poured_concrete_industrial",
     "pillar": "wall_corrugated_metal_weathered"
   },
+  "posters": [
+    {
+      "wall": "north",
+      "along": -10.5,
+      "centerY": 2.85,
+      "posterWidth": 0.95,
+      "posterScale": 0.68,
+      "posterRollDeg": -9,
+      "posterPitchDeg": 3
+    },
+    {
+      "wall": "north",
+      "along": -5.8,
+      "centerY": 1.55,
+      "posterWidth": 1.05,
+      "posterScale": 1.08,
+      "posterRollDeg": 14,
+      "posterPitchDeg": -2
+    },
+    {
+      "wall": "north",
+      "along": 7.8,
+      "centerY": 2.35,
+      "posterWidth": 0.9,
+      "posterScale": 0.82,
+      "posterRollDeg": -6,
+      "posterYawOffsetDeg": 4
+    },
+    {
+      "wall": "north",
+      "along": 11.2,
+      "centerY": 1.85,
+      "posterWidth": 0.85,
+      "posterScale": 0.74,
+      "posterRollDeg": 19,
+      "posterPitchDeg": 5
+    },
+    {
+      "wall": "south",
+      "along": -11,
+      "centerY": 2.25,
+      "posterWidth": 1.0,
+      "posterScale": 0.88,
+      "posterRollDeg": -12,
+      "posterPitchDeg": -4
+    },
+    {
+      "wall": "south",
+      "along": 6.5,
+      "centerY": 2.65,
+      "posterWidth": 0.92,
+      "posterScale": 0.72,
+      "posterRollDeg": 8,
+      "posterYawOffsetDeg": -3
+    },
+    {
+      "wall": "south",
+      "along": -7.5,
+      "centerY": 1.35,
+      "posterWidth": 1.1,
+      "posterScale": 1.02,
+      "posterRollDeg": -16,
+      "posterPitchDeg": 2
+    },
+    {
+      "wall": "east",
+      "along": -10.2,
+      "centerY": 2.5,
+      "posterWidth": 0.88,
+      "posterScale": 0.78,
+      "posterRollDeg": 7,
+      "posterPitchDeg": -3
+    },
+    {
+      "wall": "east",
+      "along": 5.4,
+      "centerY": 1.65,
+      "posterWidth": 1.0,
+      "posterScale": 0.92,
+      "posterRollDeg": -11,
+      "posterYawOffsetDeg": 5
+    },
+    {
+      "wall": "west",
+      "along": -5.5,
+      "centerY": 1.45,
+      "posterWidth": 0.8,
+      "posterScale": 0.58,
+      "posterRollDeg": 13,
+      "posterPitchDeg": 4
+    }
+  ],
   "pillars": [
     { "x": -8, "z": -8, "shape": "rounded" },
     { "x": 8, "z": -8, "shape": "rounded" },

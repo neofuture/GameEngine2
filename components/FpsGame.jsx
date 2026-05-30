@@ -53,7 +53,10 @@ import { warmupPickupPreviewEngine } from "@/lib/PickupPreviewEngine";
 import { createBulletPool, getLaserPalette, loadViewWeapon } from "@/lib/ViewWeapon";
 import {
   spawnAmmoDrop, updateAmmoDrops,
+  disposeAllAmmoDrops,
   preloadAmmoCrateAssets,
+  finalizePickupInScene,
+  resyncPickupShadowCaster,
 } from "@/lib/AmmoCrate";
 import {
   spawnLevelCollectibles,
@@ -62,6 +65,8 @@ import {
   updateCompassCollectibleMarkers,
   hideCompassCollectibleMarker,
   disposeCompassCollectibleMarkers,
+  updateLevelCollectibles,
+  LEVEL_COLLECTIBLE_TEST_RESPAWN,
 } from "@/lib/LevelCollectibles";
 import {
   spawnGrenade, updateGrenades, disposeAllGrenades,
@@ -74,6 +79,10 @@ import {
   PROJECTILE_FLASHBANG,
 } from "@/lib/Grenade";
 import { groundSupportFromLevel } from "@/lib/GroundSupport";
+import {
+  setColliderDebug,
+  updateColliderDebugOverlay,
+} from "@/lib/ColliderDebug.js";
 import { warmupGameGpu, resetGameGpuWarmup } from "@/lib/GpuWarmup";
 import {
   applyTargetHit,
@@ -340,6 +349,10 @@ const DEATH_MIN_DISPLAY_MS = 800;
 const DEATH_FADE_MS = 1200;
 const MAGAZINE_SIZE = 80;
 const SPARE_MAGAZINES = 4;
+/** Shrink HUD ammo digits when a stat exceeds two digits. */
+function hudAmmoValueClass(value) {
+  return value >= 100 ? " hudAmmoValueCompact" : "";
+}
 const BURST_SHOT_COUNT = 3;
 const BURST_INTERVAL = 0.085;
 const AUTO_FIRE_INTERVAL = 0.1;
@@ -718,6 +731,8 @@ export default function FpsGame() {
   const targetsRef = useRef([]);
   const [hitDebugEnabled, setHitDebugEnabled] = useState(false);
   const hitDebugEnabledRef = useRef(false);
+  const [colliderDebugEnabled, setColliderDebugEnabled] = useState(false);
+  const colliderDebugEnabledRef = useRef(false);
   const [hitzoneOverlayEnabled, setHitzoneOverlayEnabled] = useState(false);
   const [levelEditEnabled, setLevelEditEnabled] = useState(false);
   const levelEditEnabledRef = useRef(false);
@@ -889,6 +904,11 @@ export default function FpsGame() {
   ammoDropSpareThresholdRef.current = ammoDropSpareThreshold;
   showDevOverlayRef.current = showDevOverlay;
   showPlayerCoordsRef.current = showPlayerCoords;
+  if (showPlayerCoords && !colliderDebugEnabledRef.current) {
+    colliderDebugEnabledRef.current = true;
+    setColliderDebugEnabled(true);
+    if (sceneRef.current) setColliderDebug(sceneRef.current, true);
+  }
 
   scheduleGameplayHudSyncRef.current = () => {
     if (hudSyncPendingRef.current) return;
@@ -1083,6 +1103,7 @@ export default function FpsGame() {
       scene.fog = new THREE.Fog(DAY_CLEAR_COLOR, 45, 95);
       sceneRef.current = scene;
       if (hitDebugEnabledRef.current) setHitDebug(scene, true);
+      if (colliderDebugEnabledRef.current) setColliderDebug(scene, true);
 
       const HIP_FOV = 75;
       const ADS_FOV = 52;
@@ -1176,13 +1197,6 @@ export default function FpsGame() {
         scene,
         { ...arena, stairs: stairParams },
         levelTextures
-      );
-      const spawnedCollectibles = spawnLevelCollectibles(scene, arena);
-      collectibleEntries = spawnedCollectibles.entries;
-      for (const drop of spawnedCollectibles.drops) ammoDrops.push(drop);
-      mountCompassCollectibleMarkers(
-        compassMarkersRef.current,
-        collectibleEntries
       );
       setArenaHasStairs(Boolean(arena.stairs));
       if (!isActive()) {
@@ -1432,9 +1446,31 @@ export default function FpsGame() {
       grenades = [];
       grenadeDrops = [];
       bloodSplatters = [];
+      const spawnedCollectibles = spawnLevelCollectibles(
+        level.pickupsGroup ?? scene,
+        arena
+      );
+      collectibleEntries = spawnedCollectibles.entries;
+      if (level.pickupsGroup) {
+        enableShadowsOn(level.pickupsGroup);
+        for (const entry of collectibleEntries) {
+          finalizePickupInScene(entry.drop?.mesh);
+          resyncPickupShadowCaster(entry.drop?.mesh);
+        }
+      }
+      refitSunShadowRef.current?.();
+      refitMoonShadowRef.current?.();
+      mountCompassCollectibleMarkers(
+        compassMarkersRef.current,
+        collectibleEntries
+      );
       let grenadeHeld = false;
       let simTime = 0;
-      const allColliders = [...level.colliders, ...level.stairColliders];
+      const allColliders = [
+        ...level.colliders,
+        ...level.stairColliders,
+        ...level.ceilingColliders,
+      ];
       let _lastHostileCount = -1;
       let _radarFrameSkip = 0;
       const muzzlePos = new THREE.Vector3();
@@ -2149,7 +2185,10 @@ export default function FpsGame() {
           }
 
           // Reward dots (blue) for HP orbs, ammo drops, grenade drops
-          const allDrops = [...hpOrbs, ...ammoDrops, ...grenadeDrops]
+          const levelDrops = collectibleEntries
+            .filter((e) => !e.collected && e.drop?.mesh?.position)
+            .map((e) => e.drop);
+          const allDrops = [...hpOrbs, ...ammoDrops, ...grenadeDrops, ...levelDrops]
             .filter(d => !d.collected && d.mesh?.position);
           let rewardContainer = container.parentElement.querySelector(".radarRewardDots");
           if (!rewardContainer) {
@@ -2426,6 +2465,26 @@ export default function FpsGame() {
         );
         updateTargetHealthBars(level.targets, dt, camera);
         updateHitDebugMarkers(dt);
+        if (colliderDebugEnabledRef.current) {
+          const shadowCasters = collectibleEntries
+            .filter((e) => !e.collected && e.drop?.mesh)
+            .map((e) => e.drop.mesh.userData?.pickupShadowCaster)
+            .filter(Boolean);
+          updateColliderDebugOverlay(
+            allColliders,
+            {
+              x: player.getX(),
+              y: player.getY(),
+              z: player.getZ(),
+              radius: 0.35,
+              height: player.getY() - player.getFootY(),
+            },
+            {
+              ...player.getMovementDebugSnapshot?.(),
+              shadowCasters,
+            }
+          );
+        }
         updateDeathAnimations(level.targets, dt, (mesh) => {
           deactivateTarget(mesh);
           scheduleRespawn(mesh);
@@ -2467,6 +2526,51 @@ export default function FpsGame() {
           allColliders,
           level.bounds,
           level.floorHoles ?? [],
+        );
+
+        updateLevelCollectibles(
+          collectibleEntries,
+          dt,
+          player.getX(),
+          player.getFootY(),
+          player.getZ(),
+          (value, drop, entry) => {
+            if (drop?.compassMarkerId) {
+              hideCompassCollectibleMarker(collectibleEntries, drop.compassMarkerId);
+            }
+            const kind = entry?.type ?? drop?.rewardType ?? "ammo";
+            if (kind === "hp") {
+              playerHealthRef.current = Math.min(
+                100,
+                playerHealthRef.current + (value ?? 10)
+              );
+              setPlayerHealth(playerHealthRef.current);
+              pickupFlashLayerRef.current?.show("hp");
+              sounds.playHpPickup();
+            } else if (kind === "grenade") {
+              grenadeCountRef.current += value ?? 1;
+              setGrenadeCount(grenadeCountRef.current);
+              pickupFlashLayerRef.current?.show("grenade");
+              sounds.playSupplyPickup();
+            } else if (kind === "flashbang") {
+              flashbangCountRef.current += value ?? 1;
+              setFlashbangCount(flashbangCountRef.current);
+              pickupFlashLayerRef.current?.show("grenade");
+              sounds.playSupplyPickup();
+            } else {
+              roundsInMagRef.current += value ?? 10;
+              pickupFlashLayerRef.current?.show("ammo");
+              sounds.playSupplyPickup();
+            }
+            scheduleGameplayHudSyncRef.current();
+          },
+          {
+            testRespawn: LEVEL_COLLECTIBLE_TEST_RESPAWN,
+            scene: level.pickupsGroup ?? scene,
+            arena,
+            catwalkDeckY: level.catwalkDeckY,
+            compassContainer: compassMarkersRef.current,
+          }
         );
 
         updateGrenadeDrops(
@@ -2654,6 +2758,7 @@ export default function FpsGame() {
         floorY: level.floorY,
         colliders: allColliders,
         bounds: level.bounds,
+        levelCollectibleMeshes: collectibleEntries.map((e) => e.drop?.mesh),
       });
       if (!isActive()) return;
       reportLoad(98, "GPU ready");
@@ -2688,11 +2793,7 @@ export default function FpsGame() {
       }
       disposeAllHpOrbs(hpOrbs);
       disposeCompassCollectibleMarkers(collectibleEntries);
-      for (const d of ammoDrops) {
-        d.mesh.parent?.remove(d.mesh);
-        if (d.ownMats) for (const m of d.mesh.material) m.dispose();
-      }
-      ammoDrops.length = 0;
+      disposeAllAmmoDrops(ammoDrops);
       disposeAllGrenades(grenades, scene);
       disposeAllGrenadeDrops(grenadeDrops);
       disposeAllBloodSplatters(bloodSplatters, scene);
@@ -2898,19 +2999,19 @@ export default function FpsGame() {
         {/* Left section — ROUNDS */}
         <div className={`hudAmmoStat hudAmmoStatLeft${roundsInMag < 15 || (roundsInMag === 0 && spareMags === 0) ? " hudAmmoLow" : ""}`}>
           <span className="hudAmmoLabel">ROUNDS</span>
-          <span className="hudAmmoValue">{String(roundsInMag).padStart(2, "0")}</span>
+          <span className={`hudAmmoValue${hudAmmoValueClass(roundsInMag)}`}>{String(roundsInMag).padStart(2, "0")}</span>
         </div>
 
         {/* Centre section — MAG */}
         <div className={`hudAmmoStat hudAmmoStatCenter${roundsInMag === 0 && spareMags === 0 ? " hudAmmoLow" : ""}`}>
           <span className="hudAmmoLabel">MAG</span>
-          <span className="hudAmmoValue">{String(MAGAZINE_SIZE).padStart(2, "0")}</span>
+          <span className={`hudAmmoValue${hudAmmoValueClass(MAGAZINE_SIZE)}`}>{String(MAGAZINE_SIZE).padStart(2, "0")}</span>
         </div>
 
         {/* Right section — MAGS */}
         <div className={`hudAmmoStat hudAmmoStatRight${roundsInMag === 0 && spareMags === 0 ? " hudAmmoLow" : ""}`}>
           <span className="hudAmmoLabel">MAGS</span>
-          <span className="hudAmmoValue">{String(spareMags).padStart(2, "0")}</span>
+          <span className={`hudAmmoValue${hudAmmoValueClass(spareMags)}`}>{String(spareMags).padStart(2, "0")}</span>
         </div>
 
         {/* Fire mode indicator — auto | burst | single */}
@@ -3619,6 +3720,26 @@ export default function FpsGame() {
               <p className="settingsHint">
                 Cyan wireframe = hull (broad-phase capture). Colored wireframe = actual body
                 geometry (what precision raycast tests). Gaps between them are misses.
+              </p>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={colliderDebugEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setColliderDebugEnabled(checked);
+                    colliderDebugEnabledRef.current = checked;
+                    if (sceneRef.current) {
+                      setColliderDebug(sceneRef.current, checked);
+                    }
+                  }}
+                />
+                Collider wireframe overlay
+              </label>
+              <p className="settingsHint">
+                Bright red = colliders blocking you right now. Red floor rectangle =
+                invisible walk clamp. Lighter red = deck pieces. Magenta = ammo
+                shadow caster. Green = player capsule. Auto-on with player coords HUD.
               </p>
               <p className="settingsGroupLabel">Player position</p>
               <p className="settingsHint">
