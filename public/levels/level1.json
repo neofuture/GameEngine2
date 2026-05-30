@@ -199,9 +199,12 @@
     {
       "id": "catwalk_ammo_crate",
       "type": "ammo",
-      "preset": "catwalkBackRight",
+      "x": 8.549,
+      "z": 2.478,
+      "surface": "catwalk",
+      "floorY": 4.35,
       "value": 10,
-      "note": "Ammo crate on catwalk back-right corner — shown on compass until collected"
+      "note": "Ammo crate on catwalk — QA spawn at player coords (footY 4.35)"
     }
   ]
 }

@@ -33,7 +33,7 @@ import {
   VIEWMODEL_LAYER,
   WORLD_LAYER,
 } from "@/lib/LightingLayers";
-import { isPointInsideAnyRoom } from "@/lib/RoomPlacement";
+import { isPointInsideAnyRoom, isPlayerInsideRoomForLighting } from "@/lib/RoomPlacement";
 import { buildRoomCullables, updateRoomCulling } from "@/lib/RoomCulling";
 import {
   initCandleFlicker,
@@ -55,8 +55,7 @@ import {
   spawnAmmoDrop, updateAmmoDrops,
   disposeAllAmmoDrops,
   preloadAmmoCrateAssets,
-  finalizePickupInScene,
-  resyncPickupShadowCaster,
+  refreshLevelPickupShadows,
 } from "@/lib/AmmoCrate";
 import {
   spawnLevelCollectibles,
@@ -68,6 +67,7 @@ import {
   updateLevelCollectibles,
   LEVEL_COLLECTIBLE_TEST_RESPAWN,
 } from "@/lib/LevelCollectibles";
+
 import {
   spawnGrenade, updateGrenades, disposeAllGrenades,
   updateTrajectoryPreview, hideTrajectoryPreview, disposePreview,
@@ -1343,7 +1343,27 @@ export default function FpsGame() {
         moon.updateMatrixWorld(true);
         moon.target.updateMatrixWorld(true);
       };
+      const mountLevelCollectibles = () => {
+        if (disposed || !level) return;
+        const spawnedCollectibles = spawnLevelCollectibles(
+          level.pickupsGroup ?? scene,
+          arena
+        );
+        collectibleEntries = spawnedCollectibles.entries;
+        if (level.pickupsGroup) enableShadowsOn(level.pickupsGroup);
+        refreshLevelPickupShadows(
+          level.pickupsGroup ?? scene,
+          collectibleEntries.map((e) => e.drop?.mesh),
+          level.group
+        );
+        renderer.shadowMap.needsUpdate = true;
+        mountCompassCollectibleMarkers(
+          compassMarkersRef.current,
+          collectibleEntries
+        );
+      };
       applyDayNightRef.current(sunIsDayRef.current);
+      mountLevelCollectibles();
       if (sunIsDayRef.current) {
         refitSunShadowRef.current();
       } else {
@@ -1446,24 +1466,6 @@ export default function FpsGame() {
       grenades = [];
       grenadeDrops = [];
       bloodSplatters = [];
-      const spawnedCollectibles = spawnLevelCollectibles(
-        level.pickupsGroup ?? scene,
-        arena
-      );
-      collectibleEntries = spawnedCollectibles.entries;
-      if (level.pickupsGroup) {
-        enableShadowsOn(level.pickupsGroup);
-        for (const entry of collectibleEntries) {
-          finalizePickupInScene(entry.drop?.mesh);
-          resyncPickupShadowCaster(entry.drop?.mesh);
-        }
-      }
-      refitSunShadowRef.current?.();
-      refitMoonShadowRef.current?.();
-      mountCompassCollectibleMarkers(
-        compassMarkersRef.current,
-        collectibleEntries
-      );
       let grenadeHeld = false;
       let simTime = 0;
       const allColliders = [
@@ -2620,12 +2622,14 @@ export default function FpsGame() {
         input.endFrame();
         sun.target.updateMatrixWorld();
 
-        const inRoom = isPointInsideAnyRoom(
+        const inRoom = isPlayerInsideRoomForLighting(
           camera.position.x,
           camera.position.z,
+          player.getFootY(),
           arena.rooms,
           arenaHalf,
-          attachWall
+          attachWall,
+          level.catwalkDeckY
         );
         syncLightLayersForZone(scene, inRoom, outdoorLights, roomLights);
 
@@ -2758,7 +2762,6 @@ export default function FpsGame() {
         floorY: level.floorY,
         colliders: allColliders,
         bounds: level.bounds,
-        levelCollectibleMeshes: collectibleEntries.map((e) => e.drop?.mesh),
       });
       if (!isActive()) return;
       reportLoad(98, "GPU ready");
