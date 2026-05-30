@@ -1020,7 +1020,7 @@ export default function FpsGame() {
     setOilBarrelTuneEnabled(oilBarrelEnabled);
     const barrelTuning = loadOilBarrelTuning();
     setOilBarrelTuning(barrelTuning);
-    applyOilBarrelMaterialTuning(barrelTuning);
+    applyOilBarrelMaterialTuning(barrelTuning, sceneRef.current ?? undefined);
     setKeyboardLook(kbLook);
     setKeyboardEase(kbEase);
     setMouseLook(mLook);
@@ -4043,7 +4043,7 @@ export default function FpsGame() {
                   [key]: value,
                 });
                 saveOilBarrelTuning(next);
-                applyOilBarrelMaterialTuning(next);
+                applyOilBarrelMaterialTuning(next, sceneRef.current ?? undefined);
                 if (key === "topCap") {
                   const showInterior = value === false;
                   if (showInterior) {
@@ -4060,7 +4060,7 @@ export default function FpsGame() {
             onReset={() => {
               const next = { ...DEFAULT_OIL_BARREL_TUNING };
               saveOilBarrelTuning(next);
-              applyOilBarrelMaterialTuning(next);
+              applyOilBarrelMaterialTuning(next, sceneRef.current ?? undefined);
               setOilBarrelTuning(next);
               rebuildOilBarrelsRef.current?.();
             }}

@@ -124,7 +124,7 @@ export default function OilBarrelTunePanel({
         Inner wall tiles 2× horizontally around the cylinder. Floor and exterior are not rotated.
       </p>
 
-      <p className="settingsGroup">Cylinder wall</p>
+      <p className="settingsGroup">Cylinder wall + rim</p>
       <BarControl
         label="Body brightness"
         value={tuning.bodyBrightness}

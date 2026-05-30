@@ -1,0 +1,20 @@
+{
+  "name": "barrel_rim_reflective_metal_grunge",
+  "source_pack": "barrel_rim_reflective_metal_pbr_pack",
+  "runtime_webp": {
+    "albedo": "barrel_rim_albedo.webp",
+    "normal": "barrel_rim_normal.webp",
+    "orm": "barrel_rim_orm.webp"
+  },
+  "orm_packing": "R=AO, G=roughness, B=metallic",
+  "normal": "OpenGL (barrel_rim_reflective_metal_normal_opengl.png)",
+  "encode": "256×256 WebP via scripts/optimize-oil-barrel-textures.mjs rim (~25 KB total)",
+  "maps_in_source_only": [
+    "height",
+    "metallic",
+    "ao",
+    "specular",
+    "gloss",
+    "normal_directx"
+  ]
+}
