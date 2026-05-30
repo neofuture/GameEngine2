@@ -48,7 +48,10 @@ function BarControl({ label, value, min, max, step, nudge, format, onChange }) {
 
 /** @param {{
  *   tuning: import("@/lib/OilBarrelTuning").OilBarrelTuning,
- *   onChange: (key: keyof import("@/lib/OilBarrelTuning").OilBarrelTuning, value: number) => void,
+ *   onChange: (
+ *     key: keyof import("@/lib/OilBarrelTuning").OilBarrelTuning,
+ *     value: number | boolean
+ *   ) => void,
  *   onReset: () => void,
  *   onCopy?: () => void,
  *   onClose?: () => void,
@@ -91,6 +94,35 @@ export default function OilBarrelTunePanel({
           )}
         </div>
       </div>
+
+      <p className="settingsGroup">Geometry</p>
+      <label className="settingRow">
+        <input
+          type="checkbox"
+          checked={tuning.topCap !== false}
+          onChange={(e) => onChange("topCap", e.target.checked)}
+        />
+        Top endcap (flat lid)
+      </label>
+      <p className="settingsHint" style={{ marginTop: 0 }}>
+        Off = open top with textured interior (rim kept, no flat lid). Per-prop override: set{" "}
+        <code>topCap</code> in level JSON.
+      </p>
+
+      <p className="settingsGroup">Interior wall (open top)</p>
+      <BarControl
+        label="Wall texture rotation (°)"
+        value={tuning.interiorTextureRotation}
+        min={L.interiorTextureRotation.min}
+        max={L.interiorTextureRotation.max}
+        step={L.interiorTextureRotation.step}
+        nudge={L.interiorTextureRotation.nudge}
+        format={(v) => `${Math.round(v)}°`}
+        onChange={(v) => onChange("interiorTextureRotation", v)}
+      />
+      <p className="settingsHint" style={{ marginTop: 0 }}>
+        Inner wall tiles 2× horizontally around the cylinder. Floor and exterior are not rotated.
+      </p>
 
       <p className="settingsGroup">Cylinder wall</p>
       <BarControl
@@ -189,7 +221,7 @@ export default function OilBarrelTunePanel({
 
       <p className="settingsHint">
         Cap contrast adjusts the endcap albedo in code — no new PNG needed for tuning.
-        Re-export textures only if you need different art (layout, symbols, resolution).
+        Copy JSON includes <code>topCap</code> for level props when omitted there.
       </p>
     </div>
   );

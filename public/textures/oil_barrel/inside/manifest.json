@@ -1,0 +1,129 @@
+{
+  "pack_name": "barrel_inside_texture_pack",
+  "description": "Interior texture pack for a hollow sci-fi industrial barrel: one wraparound inner wall strip and one circular interior floor/base.",
+  "source": "Generated from the open empty barrel concept image.",
+  "notes": [
+    "The wall albedo has been processed to blend the left and right edges for a cleaner cylindrical wrap.",
+    "Normal, roughness, metallic, height and AO maps are generated approximations from the albedo texture rather than baked from a true 3D high-poly mesh.",
+    "ORM maps use red=ambient occlusion, green=roughness, blue=metallic.",
+    "The floor albedo alpha version includes transparent corners for the circular UV island; the square version is included for engines that prefer opaque textures."
+  ],
+  "recommended_mapping": {
+    "wall": {
+      "mesh_part": "inside cylindrical wall",
+      "uv": "wrap horizontally around cylinder; tile/wrap U axis once; V axis vertical",
+      "albedo": "barrel_inside_wall_albedo_4096x2048.png",
+      "normal": "barrel_inside_wall_normal_4096x2048.png",
+      "roughness": "barrel_inside_wall_roughness_4096x2048.png",
+      "metallic": "barrel_inside_wall_metallic_4096x2048.png",
+      "height": "barrel_inside_wall_height_4096x2048.png",
+      "ao": "barrel_inside_wall_ao_4096x2048.png",
+      "orm": "barrel_inside_wall_orm_4096x2048.png"
+    },
+    "floor": {
+      "mesh_part": "inside bottom circular base",
+      "uv": "project/circle-map to the bottom face",
+      "albedo_alpha": "barrel_inside_floor_albedo_2048x2048_alpha.png",
+      "albedo_square": "barrel_inside_floor_albedo_2048x2048_square.png",
+      "normal": "barrel_inside_floor_normal_2048x2048_alpha.png",
+      "roughness": "barrel_inside_floor_roughness_2048x2048.png",
+      "metallic": "barrel_inside_floor_metallic_2048x2048.png",
+      "height": "barrel_inside_floor_height_2048x2048.png",
+      "ao": "barrel_inside_floor_ao_2048x2048.png",
+      "orm": "barrel_inside_floor_orm_2048x2048_alpha.png",
+      "mask": "barrel_inside_floor_uv_mask_2048x2048.png"
+    }
+  },
+  "files": {
+    "barrel_inside_texture_atlas_original.png": {
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGB"
+    },
+    "barrel_inside_wall_albedo_4096x2048.png": {
+      "width": 4096,
+      "height": 2048,
+      "mode": "RGB"
+    },
+    "barrel_inside_wall_normal_4096x2048.png": {
+      "width": 4096,
+      "height": 2048,
+      "mode": "RGB"
+    },
+    "barrel_inside_wall_roughness_4096x2048.png": {
+      "width": 4096,
+      "height": 2048,
+      "mode": "L"
+    },
+    "barrel_inside_wall_metallic_4096x2048.png": {
+      "width": 4096,
+      "height": 2048,
+      "mode": "L"
+    },
+    "barrel_inside_wall_height_4096x2048.png": {
+      "width": 4096,
+      "height": 2048,
+      "mode": "L"
+    },
+    "barrel_inside_wall_ao_4096x2048.png": {
+      "width": 4096,
+      "height": 2048,
+      "mode": "L"
+    },
+    "barrel_inside_wall_orm_4096x2048.png": {
+      "width": 4096,
+      "height": 2048,
+      "mode": "RGB"
+    },
+    "barrel_inside_floor_albedo_2048x2048_alpha.png": {
+      "width": 2048,
+      "height": 2048,
+      "mode": "RGBA"
+    },
+    "barrel_inside_floor_albedo_2048x2048_square.png": {
+      "width": 2048,
+      "height": 2048,
+      "mode": "RGB"
+    },
+    "barrel_inside_floor_uv_mask_2048x2048.png": {
+      "width": 2048,
+      "height": 2048,
+      "mode": "L"
+    },
+    "barrel_inside_floor_normal_2048x2048_alpha.png": {
+      "width": 2048,
+      "height": 2048,
+      "mode": "RGBA"
+    },
+    "barrel_inside_floor_roughness_2048x2048.png": {
+      "width": 2048,
+      "height": 2048,
+      "mode": "L"
+    },
+    "barrel_inside_floor_metallic_2048x2048.png": {
+      "width": 2048,
+      "height": 2048,
+      "mode": "L"
+    },
+    "barrel_inside_floor_height_2048x2048.png": {
+      "width": 2048,
+      "height": 2048,
+      "mode": "L"
+    },
+    "barrel_inside_floor_ao_2048x2048.png": {
+      "width": 2048,
+      "height": 2048,
+      "mode": "L"
+    },
+    "barrel_inside_floor_orm_2048x2048_alpha.png": {
+      "width": 2048,
+      "height": 2048,
+      "mode": "RGBA"
+    },
+    "preview_barrel_inside_pack.png": {
+      "width": 1600,
+      "height": 1200,
+      "mode": "RGB"
+    }
+  }
+}

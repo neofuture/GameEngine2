@@ -59,6 +59,7 @@ import {
 } from "@/lib/AmmoCrate";
 import {
   preloadOilBarrelAssets,
+  ensureOilBarrelInteriorTextures,
   setOilBarrelTuning as applyOilBarrelMaterialTuning,
 } from "@/lib/OilBarrel";
 import {
@@ -774,6 +775,7 @@ export default function FpsGame() {
   const refitSunShadowRef = useRef(null);
   const refitMoonShadowRef = useRef(null);
   const rebuildStairsRef = useRef(null);
+  const rebuildOilBarrelsRef = useRef(null);
   const stairParamsRef = useRef(initialStairTuning);
   const walkBobTuningRef = useRef(initialWalkBobTuning);
   const stairWalkTuningRef = useRef(initialStairWalkTuning);
@@ -1175,7 +1177,7 @@ export default function FpsGame() {
       await preloadAmmoCrateAssets();
       if (!isActive()) return;
       reportLoad(54, "Oil barrel assets");
-      await preloadOilBarrelAssets();
+      await preloadOilBarrelAssets(arena);
       if (!isActive()) return;
       reportLoad(55, "HP orb textures");
       await preloadHpOrbAssets();
@@ -1405,6 +1407,9 @@ export default function FpsGame() {
         if (!level?.rebuildStairs) return;
         level.rebuildStairs(params);
         syncAllColliders();
+      };
+      rebuildOilBarrelsRef.current = () => {
+        level?.rebuildOilBarrels?.();
       };
 
       player = createPlayerController(camera, level.bounds, level.floorY, {
@@ -4039,6 +4044,16 @@ export default function FpsGame() {
                 });
                 saveOilBarrelTuning(next);
                 applyOilBarrelMaterialTuning(next);
+                if (key === "topCap") {
+                  const showInterior = value === false;
+                  if (showInterior) {
+                    ensureOilBarrelInteriorTextures().then(() => {
+                      rebuildOilBarrelsRef.current?.();
+                    });
+                  } else {
+                    rebuildOilBarrelsRef.current?.();
+                  }
+                }
                 return next;
               });
             }}
@@ -4047,6 +4062,7 @@ export default function FpsGame() {
               saveOilBarrelTuning(next);
               applyOilBarrelMaterialTuning(next);
               setOilBarrelTuning(next);
+              rebuildOilBarrelsRef.current?.();
             }}
             onCopy={async () => {
               const text = JSON.stringify(oilBarrelTuning, null, 2);
