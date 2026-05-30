@@ -58,6 +58,19 @@ import {
   refreshLevelPickupShadows,
 } from "@/lib/AmmoCrate";
 import {
+  preloadOilBarrelAssets,
+  setOilBarrelTuning as applyOilBarrelMaterialTuning,
+} from "@/lib/OilBarrel";
+import {
+  DEFAULT_OIL_BARREL_TUNING,
+  loadOilBarrelTuneEnabled,
+  loadOilBarrelTuning,
+  normalizeOilBarrelTuning,
+  saveOilBarrelTuneEnabled,
+  saveOilBarrelTuning,
+} from "@/lib/OilBarrelTuning";
+import OilBarrelTunePanel from "@/components/OilBarrelTunePanel";
+import {
   spawnLevelCollectibles,
   mountCompassCollectibleMarkers,
   ensureCompassCollectibleMarkers,
@@ -155,7 +168,7 @@ import {
   DEFAULT_AMMO_DROP_SPARE_THRESHOLD,
 } from "@/lib/RewardDropSettings";
 import HudCompass from "@/components/HudCompass";
-import HudBarCompass, { updateHudBarCompass } from "@/components/HudBarCompass";
+import HudBarCompass from "@/components/HudBarCompass";
 import { SettingsSection } from "@/components/SettingsSection";
 import {
   DEFAULT_HEMI_DAY,
@@ -479,10 +492,6 @@ function updateWalkPowerHud(el, stamina, staminaMax, playerHealth, visible) {
     track.classList.toggle("hudWalkPowerRadioactive", greenOp > 0.01);
     track.classList.toggle("hudWalkPowerOverload", overload && greenOp > 0.01);
     if (greenOp > 0.01) {
-      track.style.setProperty(
-        "--radioactive-speed",
-        `${Math.max(0.2, 0.8 - (playerHealth - 100) * 0.004)}s`
-      );
       if (overload) {
         track.style.setProperty(
           "--shake-speed",
@@ -492,7 +501,6 @@ function updateWalkPowerHud(el, stamina, staminaMax, playerHealth, visible) {
         track.style.removeProperty("--shake-speed");
       }
     } else {
-      track.style.removeProperty("--radioactive-speed");
       track.style.removeProperty("--shake-speed");
     }
   }
@@ -500,7 +508,6 @@ function updateWalkPowerHud(el, stamina, staminaMax, playerHealth, visible) {
   const fill = el.querySelector(".hudWalkPowerFill");
   if (fill) {
     fill.style.width = `${pct * 100}%`;
-    fill.style.setProperty("--power-pct", String(pct));
     let orangeOp = 0;
     let redOp = 0;
     if (displayVal <= 100) {
@@ -616,9 +623,6 @@ export default function FpsGame() {
   const compassTapeRef = useRef(null);
   const compassViewportRef = useRef(null);
   const compassMarkersRef = useRef(null);
-  const barCompassDialRef = useRef(null);
-  const barCompassBearingRef = useRef(null);
-  const barCompassDotsRef = useRef(null);
   const radarRef = useRef(null);
   const radarSweepRef = useRef(null);
   const radarDotsRef = useRef(null);
@@ -672,6 +676,10 @@ export default function FpsGame() {
   const [stairWalkTuneEnabled, setStairWalkTuneEnabled] = useState(false);
   const [hudBarTuneEnabled, setHudBarTuneEnabled] = useState(false);
   const [hudBarLayout, setHudBarLayout] = useState(() => loadHudBarTuning());
+  const [oilBarrelTuneEnabled, setOilBarrelTuneEnabled] = useState(false);
+  const [oilBarrelTuning, setOilBarrelTuning] = useState(() =>
+    loadOilBarrelTuning()
+  );
   const [walkBobTuning, setWalkBobTuning] = useState(initialWalkBobTuning);
   const [stairWalkTuning, setStairWalkTuning] = useState(initialStairWalkTuning);
   const [sunTuneEnabled, setSunTuneEnabled] = useState(false);
@@ -985,6 +993,7 @@ export default function FpsGame() {
     const walkBobEnabled = loadWalkBobTuneEnabled();
     const stairWalkEnabled = loadStairWalkTuneEnabled();
     const hudBarEnabled = loadHudBarTuneEnabled();
+    const oilBarrelEnabled = loadOilBarrelTuneEnabled();
     setInvertYLook(storedInvert);
     const storedScale = loadRenderScale();
     setRenderScale(storedScale);
@@ -1006,6 +1015,10 @@ export default function FpsGame() {
     setStairWalkTuneEnabled(stairWalkEnabled);
     setHudBarTuneEnabled(hudBarEnabled);
     setHudBarLayout(loadHudBarTuning());
+    setOilBarrelTuneEnabled(oilBarrelEnabled);
+    const barrelTuning = loadOilBarrelTuning();
+    setOilBarrelTuning(barrelTuning);
+    applyOilBarrelMaterialTuning(barrelTuning);
     setKeyboardLook(kbLook);
     setKeyboardEase(kbEase);
     setMouseLook(mLook);
@@ -1160,6 +1173,9 @@ export default function FpsGame() {
       if (!isActive()) return;
       reportLoad(52, "Ammo crate textures");
       await preloadAmmoCrateAssets();
+      if (!isActive()) return;
+      reportLoad(54, "Oil barrel assets");
+      await preloadOilBarrelAssets();
       if (!isActive()) return;
       reportLoad(55, "HP orb textures");
       await preloadHpOrbAssets();
@@ -1374,17 +1390,25 @@ export default function FpsGame() {
       moon.updateMatrixWorld(true);
       moon.target.updateMatrixWorld(true);
       input = createInput(canvas, () => bindingsRef.current);
+      /** Stable collider list — avoids spreading into a new array on every physics query. */
+      const allColliders = [];
+      function syncAllColliders() {
+        allColliders.length = 0;
+        allColliders.push(
+          ...level.colliders,
+          ...level.stairColliders,
+          ...level.ceilingColliders
+        );
+      }
+      syncAllColliders();
       rebuildStairsRef.current = (params) => {
         if (!level?.rebuildStairs) return;
         level.rebuildStairs(params);
+        syncAllColliders();
       };
 
       player = createPlayerController(camera, level.bounds, level.floorY, {
-        getColliders: () => [
-          ...level.colliders,
-          ...level.stairColliders,
-          ...level.ceilingColliders,
-        ],
+        getColliders: () => allColliders,
         getGroundSurfaces: () => level.groundSurfaces,
         getFloorHoles: () => level.floorHoles ?? [],
         getFloorBounds: () => level.floorBounds,
@@ -1468,11 +1492,6 @@ export default function FpsGame() {
       bloodSplatters = [];
       let grenadeHeld = false;
       let simTime = 0;
-      const allColliders = [
-        ...level.colliders,
-        ...level.stairColliders,
-        ...level.ceilingColliders,
-      ];
       let _lastHostileCount = -1;
       let _radarFrameSkip = 0;
       const muzzlePos = new THREE.Vector3();
@@ -2089,15 +2108,6 @@ export default function FpsGame() {
             );
           }
         }
-        updateHudBarCompass({
-          dialRef: barCompassDialRef,
-          bearingRef: barCompassBearingRef,
-          dotsRef: barCompassDotsRef,
-          playerYaw: player.getYaw(),
-          cameraX: camera.position.x,
-          cameraZ: camera.position.z,
-          targets: level?.targets,
-        });
         if (radarDotsRef.current && level?.targets) {
           const px = camera.position.x;
           const pz = camera.position.z;
@@ -3045,11 +3055,7 @@ export default function FpsGame() {
           </button>
         </div>
 
-        <HudBarCompass
-          dialRef={barCompassDialRef}
-          bearingRef={barCompassBearingRef}
-          dotsRef={barCompassDotsRef}
-        />
+        <HudBarCompass />
       </div>
 
       {/* Stamina bar — top left */}
@@ -3076,7 +3082,6 @@ export default function FpsGame() {
             className="hudWalkPowerFill"
             style={{
               width: "100%",
-              "--power-pct": 1,
               "--orange-op": 0,
               "--red-op": 0,
               "--hb-corner": `${hbCorner}px`,
@@ -3182,9 +3187,8 @@ export default function FpsGame() {
         </div>
         <div
           className={`hudHealthTrack${playerHealth <= 25 ? " hudHealthCritical" : ""}${playerHealth > 100 ? " hudHealthRadioactive" : ""}${playerHealth > 150 ? " hudHealthOverload" : ""}`}
-          style={playerHealth > 100 ? {
-            "--radioactive-speed": `${Math.max(0.2, 0.8 - (playerHealth - 100) * 0.004)}s`,
-            "--shake-speed": playerHealth > 150 ? `${Math.max(0.15, 0.6 - (Math.min(playerHealth, 190) - 150) * 0.01125)}s` : undefined,
+          style={playerHealth > 150 ? {
+            "--shake-speed": `${Math.max(0.15, 0.6 - (Math.min(playerHealth, 190) - 150) * 0.01125)}s`,
           } : undefined}
         >
           <div
@@ -3201,7 +3205,6 @@ export default function FpsGame() {
               }
               return {
                 width: `${hp}%`,
-                "--health-pct": pct,
                 "--orange-op": orangeOp,
                 "--red-op": redOp,
               };
@@ -3564,6 +3567,18 @@ export default function FpsGame() {
                   }}
                 />
                 HUD bar layout tuning
+              </label>
+              <label className="settingRow">
+                <input
+                  type="checkbox"
+                  checked={oilBarrelTuneEnabled}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setOilBarrelTuneEnabled(checked);
+                    saveOilBarrelTuneEnabled(checked);
+                  }}
+                />
+                Oil barrel material tuning
               </label>
               <label className="settingRow">
                 <input
@@ -4010,6 +4025,41 @@ export default function FpsGame() {
             onClose={() => {
               setHudBarTuneEnabled(false);
               saveHudBarTuneEnabled(false);
+            }}
+          />
+        )}
+        {oilBarrelTuneEnabled && (
+          <OilBarrelTunePanel
+            tuning={oilBarrelTuning}
+            onChange={(key, value) => {
+              setOilBarrelTuning((prev) => {
+                const next = normalizeOilBarrelTuning({
+                  ...prev,
+                  [key]: value,
+                });
+                saveOilBarrelTuning(next);
+                applyOilBarrelMaterialTuning(next);
+                return next;
+              });
+            }}
+            onReset={() => {
+              const next = { ...DEFAULT_OIL_BARREL_TUNING };
+              saveOilBarrelTuning(next);
+              applyOilBarrelMaterialTuning(next);
+              setOilBarrelTuning(next);
+            }}
+            onCopy={async () => {
+              const text = JSON.stringify(oilBarrelTuning, null, 2);
+              try {
+                await navigator.clipboard.writeText(text);
+              } catch {
+                /* ignore */
+              }
+              console.log("Oil barrel tuning:", text);
+            }}
+            onClose={() => {
+              setOilBarrelTuneEnabled(false);
+              saveOilBarrelTuneEnabled(false);
             }}
           />
         )}

@@ -87,16 +87,21 @@ function buildLevelColliders(raw) {
   const stairColliders = [];
   const ceilingColliders = [];
 
+  const { resolvePillarColliderHalf, resolvePillarShape } = await import(
+    "../lib/PillarGeometry.js"
+  );
   for (const p of raw.pillars ?? []) {
-    const pillarHalf = (raw.pillarSize ?? 1.2) / 2;
+    const { halfX, halfZ } = resolvePillarColliderHalf(p, raw);
+    const { shape, cornerRadius } = resolvePillarShape(p, raw);
     colliders.push({
       x: p.x,
       z: p.z,
-      halfX: pillarHalf,
-      halfZ: pillarHalf,
+      halfX,
+      halfZ,
       bottomY: 0,
       topY: WALL_HEIGHT,
       kind: "pillar",
+      cornerRadius: shape === "rounded" ? cornerRadius : 0,
     });
   }
 
